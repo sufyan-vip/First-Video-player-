@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <exclude domain="sharedpref" path="aether_ai.xml" />
+    <exclude domain="database" path="aether.db" />
+</full-backup-content>

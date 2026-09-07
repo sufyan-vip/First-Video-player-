@@ -128,21 +128,23 @@ fun HomeScreen(
         }
         if (ui.continueWatching.isNotEmpty()) {
             Spacer(Modifier.height(20.dp))
-            SectionHeader("Continue watching")
+            Text("Continue watching", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(10.dp))
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ui.continueWatching.forEach { v ->
-                    ContinueCard(v, onClick = { play(v, ui.continueWatching) })
+                    ContinueCard(v, onClick = { play(v, ui.continueWatching) }, modifier = Modifier.width(300.dp))
                 }
             }
         }
         if (ui.recentlyPlayed.isNotEmpty()) {
             Spacer(Modifier.height(20.dp))
-            SectionHeader("Recently played")
+            Text("Recently played", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(10.dp))
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ui.recentlyPlayed.take(12).forEach { v ->
                     VideoGridCard(
                         video = v,
-                        modifier = Modifier.width(160.dp),
+                        modifier = Modifier.width(170.dp),
                         onClick = { play(v, ui.recentlyPlayed) },
                         onLongClick = { vm.toggleFavorite(v.id) },
                     )
@@ -151,12 +153,13 @@ fun HomeScreen(
         }
         if (ui.recentlyAdded.isNotEmpty()) {
             Spacer(Modifier.height(20.dp))
-            SectionHeader("Recently added")
+            Text("Recently added", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(10.dp))
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ui.recentlyAdded.take(12).forEach { v ->
                     VideoGridCard(
                         video = v,
-                        modifier = Modifier.width(160.dp),
+                        modifier = Modifier.width(170.dp),
                         onClick = { play(v, ui.recentlyAdded) },
                         onLongClick = { vm.toggleFavorite(v.id) },
                     )
@@ -165,12 +168,13 @@ fun HomeScreen(
         }
         if (ui.favorites.isNotEmpty()) {
             Spacer(Modifier.height(20.dp))
-            SectionHeader("Favorites")
+            Text("Favorites", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(10.dp))
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ui.favorites.take(12).forEach { v ->
                     VideoGridCard(
                         video = v,
-                        modifier = Modifier.width(160.dp),
+                        modifier = Modifier.width(170.dp),
                         onClick = { play(v, ui.favorites) },
                         onLongClick = { vm.toggleFavorite(v.id) },
                     )
@@ -183,7 +187,7 @@ fun HomeScreen(
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 savedUrls.take(10).forEach { item ->
                     GlassCard(
-                        modifier = Modifier.width(220.dp),
+                        modifier = Modifier.width(230.dp),
                         onClick = { vm.playUrl(item.url, item.title) { onOpenVideo() } },
                     ) {
                         Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
@@ -203,7 +207,7 @@ fun HomeScreen(
             SectionHeader("Folders", action = "See all", onAction = onOpenFolder)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ui.folders.take(10).forEach { folder ->
-                    FolderCard(folder, onClick = onOpenFolder, modifier = Modifier.width(160.dp))
+                    FolderCard(folder, onClick = onOpenFolder, modifier = Modifier.width(170.dp))
                 }
             }
         }

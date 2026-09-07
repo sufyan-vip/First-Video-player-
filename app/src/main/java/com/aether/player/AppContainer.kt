@@ -30,6 +30,20 @@ class AetherApp : android.app.Application() {
 
     override fun onCreate() {
         super.onCreate()
+        installCrashReporter()
         container = AppContainer(this)
+    }
+
+    /** Saves the crash stack trace where Diagnostics can show it. */
+    private fun installCrashReporter() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            runCatching {
+                java.io.File(cacheDir, "last_crash.txt").writeText(
+                    android.util.Log.getStackTraceString(throwable),
+                )
+            }
+            previous?.uncaughtException(thread, throwable)
+        }
     }
 }

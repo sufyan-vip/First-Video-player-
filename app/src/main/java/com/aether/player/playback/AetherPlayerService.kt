@@ -1,7 +1,12 @@
 package com.aether.player.playback
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Build
+import androidx.core.app.NotificationCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
@@ -17,7 +22,37 @@ class AetherPlayerService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        startForegroundNow()
         buildSession()
+    }
+
+    /**
+     * Must foreground immediately: the system kills services started with
+     * startForegroundService() that don't call startForeground() within seconds.
+     * Media3 replaces this placeholder notification once playback starts.
+     */
+    private fun startForegroundNow() {
+        if (Build.VERSION.SDK_INT >= 26) {
+            val mgr = getSystemService(NotificationManager::class.java)
+            mgr?.createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "Playback", NotificationManager.IMPORTANCE_LOW),
+            )
+        }
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Aether")
+            .setContentText("Ready to play")
+            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setOngoing(true)
+            .build()
+        if (Build.VERSION.SDK_INT >= 29) {
+            startForeground(
+                FOREGROUND_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
+            )
+        } else {
+            startForeground(FOREGROUND_ID, notification)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -62,5 +97,7 @@ class AetherPlayerService : MediaSessionService() {
 
     companion object {
         const val ACTION_REBUILD = "com.aether.player.REBUILD_SESSION"
+        private const val CHANNEL_ID = "aether_playback"
+        private const val FOREGROUND_ID = 101
     }
 }

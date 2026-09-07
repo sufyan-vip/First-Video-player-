@@ -82,7 +82,6 @@ class PlayerManager(
         attachListener()
         attachEqualizer()
         ensureTicker()
-        startService()
         scope.launch {
             prefs.settings.collect { next ->
                 val prevLang = settingsCache.defaultAudioLang
@@ -335,6 +334,7 @@ class PlayerManager(
         player.stop()
         player.clearMediaItems()
         publish { PlayerUiState() }
+        runCatching { context.stopService(Intent(context, AetherPlayerService::class.java)) }
     }
 
     fun frameStep(forward: Boolean) {

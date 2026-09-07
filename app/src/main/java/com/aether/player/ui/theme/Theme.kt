@@ -29,26 +29,27 @@ val LocalAnimScale = staticCompositionLocalOf { 1f }
 fun animDur(baseMs: Int, scale: Float): Int =
     (baseMs * scale).toInt().coerceIn(1, 2000)
 
+/** Solid card surfaces (Photos / modern-settings style). */
 @Immutable
 data class GlassTokens(
-    val surface: Color = Color.White.copy(alpha = 0.08f),
-    val surfaceStrong: Color = Color.White.copy(alpha = 0.14f),
-    val border: Color = Color.White.copy(alpha = 0.14f),
-    val highlight: Color = Color.White.copy(alpha = 0.22f),
-    val blur: Boolean = true,
+    val surface: Color = Color(0xFF1E1E25),
+    val surfaceStrong: Color = Color(0xFF26262E),
+    val border: Color = Color(0xFF34343D),
+    val highlight: Color = Color(0xFF2C2C34),
+    val blur: Boolean = false,
     val intensity: Float = 0.72f,
     val corner: Dp = 24.dp,
 )
 
 fun accentOf(accent: AccentColor): Color = when (accent) {
-    AccentColor.CYAN -> Color(0xFF5CE1E6)
+    AccentColor.CYAN -> Color(0xFF4DD0E1)
     AccentColor.BLUE -> Color(0xFF4DA3FF)
     AccentColor.PURPLE -> Color(0xFFB08CFF)
     AccentColor.GREEN -> Color(0xFF6EE7B7)
     AccentColor.ORANGE -> Color(0xFFFFB86B)
     AccentColor.RED -> Color(0xFFFF6B81)
     AccentColor.PINK -> Color(0xFFFF8BD2)
-    AccentColor.SYSTEM -> Color(0xFF5CE1E6)
+    AccentColor.SYSTEM -> Color(0xFF4DD0E1)
 }
 
 @Composable
@@ -75,43 +76,43 @@ fun AetherTheme(
             onPrimary = Color(0xFF041016),
             secondary = Color(0xFF9AA4FF),
             tertiary = Color(0xFF7CFFE1),
-            background = if (amoled || hi) Color.Black else Color(0xFF0C0D14),
-            surface = if (amoled || hi) Color.Black else Color(0xFF12131C),
+            background = if (amoled) Color.Black else Color(0xFF101014),
+            surface = if (amoled) Color.Black else Color(0xFF17171C),
+            surfaceVariant = Color(0xFF232329),
             onBackground = Color.White,
             onSurface = Color.White,
             onSurfaceVariant = if (hi) Color.White else Color(0xFFB7BCC9),
-            outline = if (hi) Color.White.copy(alpha = 0.4f) else Color.White.copy(alpha = 0.12f),
+            outline = if (hi) Color.White.copy(alpha = 0.4f) else Color.White.copy(alpha = 0.1f),
             error = Color(0xFFFF6B81),
         )
         else -> lightColorScheme(
             primary = accent,
             onPrimary = Color.White,
-            background = Color(0xFFF3F5FA),
+            background = Color(0xFFF2F3F6),
             surface = Color.White,
-            onBackground = Color.Black,
-            onSurface = Color.Black,
+            surfaceVariant = Color(0xFFE8EAEE),
+            onBackground = Color(0xFF101014),
+            onSurface = Color(0xFF101014),
             onSurfaceVariant = if (hi) Color.Black else Color(0xFF3A3F4B),
-            outline = if (hi) Color.Black.copy(alpha = 0.35f) else Color.Black.copy(alpha = 0.1f),
+            outline = if (hi) Color.Black.copy(alpha = 0.3f) else Color.Black.copy(alpha = 0.08f),
         )
     }
     val glass = GlassTokens(
-        surface = if (dark) Color.White.copy(alpha = 0.06f + settings.glassIntensity * 0.06f)
-        else Color.White.copy(alpha = 0.55f),
-        surfaceStrong = if (dark) Color.White.copy(alpha = 0.12f + settings.glassIntensity * 0.08f)
-        else Color.White.copy(alpha = 0.78f),
+        surface = if (dark) Color(0xFF1E1E25) else Color.White,
+        surfaceStrong = if (dark) Color(0xFF26262E) else Color(0xFFE9EBEF),
         border = when {
             hi && dark -> Color.White.copy(alpha = 0.38f)
             hi -> Color.Black.copy(alpha = 0.3f)
-            dark -> Color.White.copy(alpha = 0.12f)
-            else -> Color.Black.copy(alpha = 0.08f)
+            dark -> Color(0xFF34343D)
+            else -> Color(0xFFDFE2E8)
         },
-        highlight = if (dark) Color.White.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.7f),
+        highlight = if (dark) Color(0xFF2C2C34) else Color(0xFFF4F5F8),
         blur = settings.performanceMode != PerformanceMode.BATTERY_SAVER && settings.blurIntensity > 0.15f,
         intensity = settings.glassIntensity,
     )
     val animScale = if (settings.reduceMotion) 0f else settings.animationScale.coerceIn(0.25f, 2f)
     val typography = MaterialTheme.typography.copy(
-        headlineLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 32.sp, letterSpacing = (-0.4).sp),
+        headlineLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 30.sp, letterSpacing = (-0.4).sp),
         headlineMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 24.sp, letterSpacing = (-0.2).sp),
         titleLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 20.sp),
         titleMedium = TextStyle(fontWeight = FontWeight.Medium, fontSize = 16.sp),

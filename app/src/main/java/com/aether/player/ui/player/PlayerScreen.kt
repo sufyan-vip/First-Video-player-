@@ -435,7 +435,7 @@ fun PlayerScreen(
                             .clip(CircleShape)
                             .background(glass.surfaceStrong),
                         factory = { ctx ->
-                            MediaRouteButton(ctx).apply { setAlwaysVisible(true) }
+                            MediaRouteButton(ctx)
                         },
                     )
                     Spacer(Modifier.width(8.dp))

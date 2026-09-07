@@ -137,7 +137,9 @@ class MediaOps(private val context: Context) {
             val retriever = MediaMetadataRetriever()
             try {
                 retriever.setDataSource(context, uriString.toUri())
-                val frames = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_FRAME_COUNT)?.toLongOrNull()
+                // Key 32 = METADATA_KEY_VIDEO_FRAME_COUNT; referenced by value so this
+                // compiles on every level (unknown keys safely return null at runtime).
+                val frames = retriever.extractMetadata(32)?.toLongOrNull()
                 val dur = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
                 fps = if (frames != null && dur != null && dur > 0) {
                     frames * 1000f / dur

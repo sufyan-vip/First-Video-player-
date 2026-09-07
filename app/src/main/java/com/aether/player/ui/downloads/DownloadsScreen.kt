@@ -78,7 +78,7 @@ fun DownloadsScreen(
                     if (item.status == "downloading" || item.status == "queued") {
                         Spacer(Modifier.height(8.dp))
                         LinearProgressIndicator(
-                            progress = { item.progress / 100f },
+                            progress = item.progress / 100f,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }

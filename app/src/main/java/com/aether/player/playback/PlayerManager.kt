@@ -24,6 +24,7 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
+import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import com.aether.player.data.db.VideoEntity
 import com.aether.player.data.library.LibraryRepository
 import com.aether.player.data.prefs.AetherSettings
@@ -107,7 +108,9 @@ class PlayerManager(
                     .setBufferDurationsMs(b[0], b[1], b[2], b[3])
                     .build(),
             )
-            .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(s.maxRetries.coerceIn(0, 10)))
+            .setLoadErrorHandlingPolicy(
+                AetherLoadPolicy(DefaultLoadErrorHandlingPolicy(), s.maxRetries.coerceIn(0, 10)),
+            )
             .setSeekBackIncrementMs(10_000)
             .setSeekForwardIncrementMs(10_000)
             .build()
@@ -792,6 +795,13 @@ class PlayerManager(
     fun volumePercent(audio: AudioManager): Int {
         val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
         return (audio.getStreamVolume(AudioManager.STREAM_MUSIC) * 100) / max
+    }
+
+    private class AetherLoadPolicy(
+        delegate: DefaultLoadErrorHandlingPolicy,
+        private val maxRetries: Int,
+    ) : LoadErrorHandlingPolicy by delegate {
+        override fun getMinimumLoadableRetryCount(dataType: Int): Int = maxRetries
     }
 
     companion object {

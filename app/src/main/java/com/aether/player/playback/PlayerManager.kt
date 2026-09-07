@@ -317,6 +317,13 @@ class PlayerManager(
         publish { it.copy(shuffle = next) }
     }
 
+    fun toggleMute() {
+        val muted = player.volume > 0f
+        player.volume = if (muted) 0f else 1f
+        publish { it.copy(muted = muted) }
+        flash(if (muted) "Muted" else "Sound on")
+    }
+
     fun setAspect(mode: AspectMode) = publish { it.copy(aspect = mode) }
 
     fun setZoom(zoom: Float) {

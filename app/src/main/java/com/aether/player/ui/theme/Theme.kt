@@ -86,7 +86,7 @@ fun AetherTheme(
             surfaceContainerHighest = Color(0xFF2E2E36),
             onBackground = Color.White,
             onSurface = Color.White,
-            onSurfaceVariant = if (hi) Color.White else Color(0xFFCCD1DC),
+            onSurfaceVariant = if (hi) Color.White else Color(0xFFD8DDE7),
             outline = if (hi) Color.White.copy(alpha = 0.4f) else Color.White.copy(alpha = 0.1f),
             error = Color(0xFFFF6B81),
         )
@@ -122,8 +122,8 @@ fun AetherTheme(
         titleLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 20.sp),
         titleMedium = TextStyle(fontWeight = FontWeight.Medium, fontSize = 16.sp),
         bodyLarge = TextStyle(fontWeight = FontWeight.Normal, fontSize = 16.sp),
-        bodyMedium = TextStyle(fontWeight = FontWeight.Normal, fontSize = 14.sp, lineHeight = 20.sp),
-        labelLarge = TextStyle(fontWeight = FontWeight.Medium, fontSize = 13.sp, letterSpacing = 0.2.sp),
+        bodyMedium = TextStyle(fontWeight = FontWeight.Normal, fontSize = 15.sp, lineHeight = 22.sp),
+        labelLarge = TextStyle(fontWeight = FontWeight.Medium, fontSize = 14.sp, letterSpacing = 0.2.sp),
     )
     CompositionLocalProvider(LocalGlass provides glass, LocalAnimScale provides animScale) {
         MaterialTheme(colorScheme = scheme, typography = typography, content = content)

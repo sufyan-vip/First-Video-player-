@@ -19,6 +19,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -38,20 +40,35 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.AspectRatio
 import androidx.compose.material.icons.outlined.Audiotrack
+import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.ClosedCaption
-import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.Fullscreen
+import androidx.compose.material.icons.outlined.GraphicEq
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.List
+import androidx.compose.material.icons.outlined.Loop
+import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.PlaylistPlay
+import androidx.compose.material.icons.outlined.Repeat
+import androidx.compose.material.icons.outlined.Shuffle
+import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material.icons.outlined.VolumeOff
+import androidx.compose.material.icons.outlined.VolumeUp
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -78,6 +95,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -90,16 +108,23 @@ import com.aether.player.AetherApp
 import com.aether.player.data.prefs.AspectMode
 import com.aether.player.data.prefs.TimelineStyle
 import com.aether.player.domain.GestureMath
+import com.aether.player.domain.RepeatMode
 import com.aether.player.domain.TimeFormat
 import com.aether.player.domain.WatchProgressLogic
 import com.aether.player.playback.CaptureResult
+import com.aether.player.playback.PlayerManager
 import com.aether.player.ui.components.GlassButton
 import com.aether.player.ui.components.GlassIconButton
 import com.aether.player.ui.theme.LocalAnimScale
 import com.aether.player.ui.theme.LocalGlass
 import com.aether.player.ui.theme.animDur
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+private val SPEEDS = listOf(1f, 1.25f, 1.5f, 1.75f, 2f, 0.5f, 0.75f)
+private val SLEEPS = listOf(0, 10, 15, 30, 45, 60, -1)
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -110,6 +135,7 @@ fun PlayerScreen(
     val context = LocalContext.current
     val app = context.applicationContext as AetherApp
     val pm = app.container.playerManager
+    val prefs = app.container.preferences
     val state by pm.state.collectAsState()
     val overlay by pm.overlay.collectAsState()
     val settings by app.container.preferences.settings.collectAsState(
@@ -121,7 +147,7 @@ fun PlayerScreen(
     val animScale = LocalAnimScale.current
     val glass = LocalGlass.current
     var controls by remember { mutableStateOf(true) }
-    var more by remember { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
     var audioSheet by remember { mutableStateOf(false) }
     var textSheet by remember { mutableStateOf(false) }
     var infoSheet by remember { mutableStateOf(false) }
@@ -129,6 +155,9 @@ fun PlayerScreen(
     var bookmarksSheet by remember { mutableStateOf(false) }
     var aiSheet by remember { mutableStateOf(false) }
     var resumeAsk by remember { mutableStateOf(false) }
+    var showHints by remember { mutableStateOf(false) }
+    var sleepIdx by remember { mutableStateOf(0) }
+    var eqIdx by remember { mutableStateOf(0) }
     var brightness by remember { mutableFloatStateOf(activity?.window?.attributes?.screenBrightness?.takeIf { it >= 0 } ?: 0.5f) }
     val boostActive = remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -137,6 +166,10 @@ fun PlayerScreen(
         if (uri != null) pm.loadExternalSubtitle(uri)
     }
 
+    LaunchedEffect(Unit) {
+        val seen = withContext(Dispatchers.IO) { prefs.getString("hints_seen") }
+        showHints = seen != "1"
+    }
     LaunchedEffect(state.current?.id) {
         val v = state.current ?: return@LaunchedEffect
         resumeAsk = settings.resumePlayback &&
@@ -158,8 +191,87 @@ fun PlayerScreen(
         }
     }
 
+    fun toggleRotate() {
+        activity?.let {
+            val next = if (it.requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE) {
+                ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            } else {
+                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            }
+            it.requestedOrientation = next
+            val id = state.current?.id
+            if (id != null) {
+                scope.launch {
+                    prefs.putString(
+                        "ori_$id",
+                        if (next == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE) "sensor_landscape" else "sensor_portrait",
+                    )
+                }
+            }
+        }
+    }
+
+    fun cycleSpeed() {
+        val next = SPEEDS.firstOrNull { it > state.speed + 0.01f } ?: SPEEDS.first()
+        pm.setSpeed(next)
+    }
+
+    fun cycleSleep() {
+        sleepIdx = (sleepIdx + 1) % SLEEPS.size
+        val minutes = SLEEPS[sleepIdx]
+        pm.startSleepTimer(minutes)
+        pm.flash("Sleep: ${TimeFormat.sleepLabel(minutes)}")
+    }
+
+    fun cycleEq() {
+        if (pm.equalizerInfo() == null) {
+            pm.flash("Equalizer unavailable")
+            return
+        }
+        eqIdx = (eqIdx + 1) % PlayerManager.EQ_PRESETS.size
+        pm.applyEqualizerPreset(PlayerManager.EQ_PRESETS[eqIdx])
+    }
+
+    fun cycleAspect() {
+        val modes = AspectMode.entries
+        val next = modes[(modes.indexOf(state.aspect) + 1) % modes.size]
+        pm.setAspect(next)
+        pm.flash(next.name.lowercase().replace('_', ' '))
+    }
+
+    fun cycleRepeat() {
+        val next = when (state.repeatMode) {
+            RepeatMode.OFF -> RepeatMode.ONE
+            RepeatMode.ONE -> RepeatMode.ALL
+            RepeatMode.ALL -> RepeatMode.OFF
+        }
+        pm.setRepeat(next)
+        pm.flash("Repeat: ${next.name.lowercase()}")
+    }
+
+    fun cycleAb() {
+        val loop = state.abLoop
+        if (loop == null) pm.setAbPoint(true)
+        else if (loop.second == Long.MAX_VALUE) pm.setAbPoint(false)
+        else {
+            pm.clearAbLoop()
+            pm.flash("A-B cleared")
+        }
+    }
+
+    fun capture() {
+        scope.launch {
+            when (val result = pm.captureFrame()) {
+                is CaptureResult.Saved -> pm.flash("Frame saved")
+                is CaptureResult.Unavailable -> pm.flash(result.reason)
+            }
+        }
+    }
+
     BackHandler {
-        if (state.locked) {
+        if (menuOpen) {
+            menuOpen = false
+        } else if (state.locked) {
             pm.setLocked(false)
         } else {
             pm.setMiniPlayer(true)
@@ -409,7 +521,7 @@ fun PlayerScreen(
                     Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .height(220.dp)
+                        .height(280.dp)
                         .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.78f)))),
                 )
                 Row(
@@ -421,6 +533,8 @@ fun PlayerScreen(
                 ) {
                     GlassIconButton(Icons.Outlined.ArrowBack, "Back", onClick = onBack)
                     Spacer(Modifier.width(10.dp))
+                    GlassIconButton(Icons.Outlined.PlaylistPlay, "Chapters") { chaptersSheet = true }
+                    Spacer(Modifier.width(10.dp))
                     Text(
                         state.current?.title ?: "Aether",
                         color = Color.White,
@@ -429,6 +543,21 @@ fun PlayerScreen(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
+                }
+
+                Column(
+                    Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    GlassIconButton(Icons.Outlined.Fullscreen, "Rotate") { toggleRotate() }
+                    GlassIconButton(
+                        if (state.muted) Icons.Outlined.VolumeOff else Icons.Outlined.VolumeUp,
+                        "Mute",
+                    ) { pm.toggleMute() }
+                    GlassIconButton(Icons.Outlined.PhotoCamera, "Capture frame") { capture() }
                     val castButton = remember {
                         runCatching { MediaRouteButton(context) }.getOrNull()
                     }
@@ -440,43 +569,7 @@ fun PlayerScreen(
                                 .background(glass.surfaceStrong),
                             factory = { castButton },
                         )
-                        Spacer(Modifier.width(8.dp))
                     }
-                    GlassIconButton(Icons.Outlined.Audiotrack, "Audio") { audioSheet = true }
-                    Spacer(Modifier.width(8.dp))
-                    GlassIconButton(Icons.Outlined.ClosedCaption, "Subtitles") { textSheet = true }
-                    Spacer(Modifier.width(8.dp))
-                    GlassIconButton(Icons.Filled.PictureInPictureAlt, "Picture in picture", onClick = onPip)
-                    Spacer(Modifier.width(8.dp))
-                    GlassIconButton(Icons.Outlined.MoreVert, "More") { more = true }
-                }
-
-                Row(
-                    Modifier.align(Alignment.Center),
-                    horizontalArrangement = Arrangement.spacedBy(22.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    GlassIconButton(Icons.Filled.SkipPrevious, "Previous") { pm.previous() }
-                    GlassIconButton(Icons.Filled.Replay10, "Rewind") { pm.skip(false) }
-                    Box(
-                        Modifier
-                            .size(72.dp)
-                            .clip(RoundedCornerShape(36.dp))
-                            .background(MaterialTheme.colorScheme.primary)
-                            .padding(0.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        androidx.compose.material3.IconButton(onClick = { pm.playPause() }, modifier = Modifier.size(72.dp)) {
-                            androidx.compose.material3.Icon(
-                                if (state.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                contentDescription = "Play/Pause",
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(36.dp),
-                            )
-                        }
-                    }
-                    GlassIconButton(Icons.Filled.Forward10, "Forward") { pm.skip(true) }
-                    GlassIconButton(Icons.Filled.SkipNext, "Next") { pm.next() }
                 }
 
                 Column(
@@ -485,6 +578,19 @@ fun PlayerScreen(
                         .navigationBarsPadding()
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                 ) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        GlassIconButton(Icons.Outlined.Audiotrack, "Audio") { audioSheet = true }
+                        GlassIconButton(Icons.Outlined.ClosedCaption, "Subtitles") { textSheet = true }
+                        GlassIconButton(Icons.Outlined.List, "Chapters") { chaptersSheet = true }
+                        GlassIconButton(Icons.Outlined.Bookmark, "Bookmarks") { bookmarksSheet = true }
+                        GlassIconButton(Icons.Outlined.Speed, "Speed (${state.speed}x)") { cycleSpeed() }
+                        GlassIconButton(Icons.Outlined.Apps, "Menu") { menuOpen = true }
+                    }
+                    Spacer(Modifier.height(10.dp))
                     val duration = state.durationMs.coerceAtLeast(0L)
                     val pos = state.positionMs.coerceAtLeast(0L)
                     val trackScaleY = when (settings.timelineStyle) {
@@ -526,24 +632,59 @@ fun PlayerScreen(
                         }
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(TimeFormat.formatMs(pos), color = Color.White, style = MaterialTheme.typography.labelLarge)
+                        Text(
+                            "${state.speed}x · ${TimeFormat.formatMs(pos)}",
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelLarge,
+                        )
                         Text(
                             if (settings.showRemaining) TimeFormat.formatRemaining(pos, duration) else TimeFormat.formatMs(duration),
                             color = Color.White,
                             style = MaterialTheme.typography.labelLarge,
                         )
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        GlassIconButton(Icons.Outlined.Speed, "Speed") { more = true }
-                        GlassIconButton(if (state.locked) Icons.Filled.Lock else Icons.Filled.LockOpen, "Lock") {
-                            pm.setLocked(true)
-                            controls = false
+                    Spacer(Modifier.height(8.dp))
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        val pill = RoundedCornerShape(30.dp)
+                        Row(
+                            modifier = Modifier
+                                .clip(pill)
+                                .background(Color.Black.copy(alpha = 0.55f))
+                                .border(1.dp, Color.White.copy(alpha = 0.14f), pill)
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            GlassIconButton(
+                                if (state.locked) Icons.Filled.Lock else Icons.Filled.LockOpen,
+                                "Lock",
+                            ) {
+                                pm.setLocked(true)
+                                controls = false
+                            }
+                            GlassIconButton(Icons.Filled.SkipPrevious, "Previous") { pm.previous() }
+                            Box(
+                                Modifier
+                                    .size(60.dp)
+                                    .clip(RoundedCornerShape(30.dp))
+                                    .background(MaterialTheme.colorScheme.primary),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                androidx.compose.material3.IconButton(
+                                    onClick = { pm.playPause() },
+                                    modifier = Modifier.size(60.dp),
+                                ) {
+                                    androidx.compose.material3.Icon(
+                                        if (state.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                        contentDescription = "Play/Pause",
+                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.size(32.dp),
+                                    )
+                                }
+                            }
+                            GlassIconButton(Icons.Filled.SkipNext, "Next") { pm.next() }
+                            GlassIconButton(Icons.Outlined.Fullscreen, "Rotate") { toggleRotate() }
                         }
-                        Text(
-                            "${state.speed}x",
-                            color = Color.White,
-                            modifier = Modifier.align(Alignment.CenterVertically),
-                        )
                     }
                 }
             }
@@ -565,6 +706,39 @@ fun PlayerScreen(
                     modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(16.dp),
                 )
             }
+        }
+
+        if (menuOpen) {
+            MenuGrid(
+                shuffle = state.shuffle,
+                repeatMode = state.repeatMode,
+                onDismiss = { menuOpen = false },
+                onAi = { aiSheet = true; menuOpen = false },
+                onCapture = { capture(); menuOpen = false },
+                onSleep = { cycleSleep(); menuOpen = false },
+                onEq = { cycleEq(); menuOpen = false },
+                onAb = { cycleAb(); menuOpen = false },
+                onAspect = { cycleAspect(); menuOpen = false },
+                onShuffle = { pm.toggleShuffle(); menuOpen = false },
+                onRepeat = { cycleRepeat(); menuOpen = false },
+                onPip = { onPip(); menuOpen = false },
+                onSubtitleFile = {
+                    subtitlePicker.launch(arrayOf("text/*", "application/x-subrip", "*/*"))
+                    menuOpen = false
+                },
+                onInfo = { infoSheet = true; menuOpen = false },
+            )
+        }
+
+        if (showHints) {
+            HintsCard(
+                onGotIt = {
+                    scope.launch {
+                        withContext(Dispatchers.IO) { prefs.putString("hints_seen", "1") }
+                        showHints = false
+                    }
+                },
+            )
         }
     }
 
@@ -588,72 +762,6 @@ fun PlayerScreen(
         )
     }
 
-    if (more) {
-        PlayerMoreSheet(
-            state = state,
-            eqInfo = pm.equalizerInfo(),
-            onDismiss = { more = false },
-            onSpeed = { pm.setSpeed(it); more = false },
-            onAspect = { pm.setAspect(it) },
-            onSleep = { pm.startSleepTimer(it); more = false },
-            onLock = { pm.setLocked(true); more = false },
-            onInfo = { infoSheet = true; more = false },
-            onSubtitleFile = {
-                subtitlePicker.launch(arrayOf("text/*", "application/x-subrip", "*/*"))
-                more = false
-            },
-            onAbA = { pm.setAbPoint(true) },
-            onAbB = { pm.setAbPoint(false) },
-            onAbClear = { pm.clearAbLoop() },
-            onFrame = { pm.frameStep(true) },
-            onRepeat = { pm.setRepeat(it) },
-            onShuffle = { pm.toggleShuffle() },
-            onBookmark = {
-                val cur = state.current ?: return@PlayerMoreSheet
-                scope.launch {
-                    app.container.library.addBookmark(
-                        cur.id,
-                        state.positionMs,
-                        "Bookmark ${TimeFormat.formatMs(state.positionMs)}",
-                    )
-                    pm.flash("Bookmark saved")
-                    more = false
-                }
-            },
-            onRotate = {
-                activity?.let {
-                    val next = if (it.requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE) {
-                        ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-                    } else {
-                        ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                    }
-                    it.requestedOrientation = next
-                    val id = state.current?.id
-                    if (id != null) {
-                        scope.launch {
-                            app.container.preferences.putString(
-                                "ori_$id",
-                                if (next == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE) "sensor_landscape" else "sensor_portrait",
-                            )
-                        }
-                    }
-                }
-            },
-            onChapters = { chaptersSheet = true; more = false },
-            onBookmarks = { bookmarksSheet = true; more = false },
-            onAi = { aiSheet = true; more = false },
-            onCapture = {
-                more = false
-                scope.launch {
-                    when (val result = pm.captureFrame()) {
-                        is CaptureResult.Saved -> pm.flash("Frame saved")
-                        is CaptureResult.Unavailable -> pm.flash(result.reason)
-                    }
-                }
-            },
-            onEqPreset = { pm.applyEqualizerPreset(it) },
-        )
-    }
     if (audioSheet) {
         TrackSheet(
             title = "Audio tracks",
@@ -698,5 +806,126 @@ fun PlayerScreen(
     }
     if (infoSheet && state.current != null) {
         VideoInfoSheet(video = state.current!!, state = state, onDismiss = { infoSheet = false })
+    }
+}
+
+@Composable
+private fun MenuGrid(
+    shuffle: Boolean,
+    repeatMode: RepeatMode,
+    onDismiss: () -> Unit,
+    onAi: () -> Unit,
+    onCapture: () -> Unit,
+    onSleep: () -> Unit,
+    onEq: () -> Unit,
+    onAb: () -> Unit,
+    onAspect: () -> Unit,
+    onShuffle: () -> Unit,
+    onRepeat: () -> Unit,
+    onPip: () -> Unit,
+    onSubtitleFile: () -> Unit,
+    onInfo: () -> Unit,
+) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.5f))
+            .clickable(onClick = onDismiss),
+        contentAlignment = Alignment.Center,
+    ) {
+        val card = RoundedCornerShape(28.dp)
+        Column(
+            Modifier
+                .padding(horizontal = 40.dp)
+                .clip(card)
+                .background(Color(0xFF1C1C22))
+                .border(1.dp, Color.White.copy(alpha = 0.12f), card)
+                .clickable(enabled = false, onClick = {})
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            val cells = listOf(
+                Triple(Icons.Outlined.SmartToy, "AI", onAi),
+                Triple(Icons.Outlined.PhotoCamera, "Capture", onCapture),
+                Triple(Icons.Outlined.Timer, "Sleep", onSleep),
+                Triple(Icons.Outlined.GraphicEq, "EQ", onEq),
+                Triple(Icons.Outlined.Loop, "A-B", onAb),
+                Triple(Icons.Outlined.AspectRatio, "Aspect", onAspect),
+                Triple(
+                    Icons.Outlined.Shuffle,
+                    if (shuffle) "Shuffle on" else "Shuffle",
+                    onShuffle,
+                ),
+                Triple(Icons.Outlined.Repeat, "Repeat ${repeatMode.name.lowercase()}", onRepeat),
+                Triple(Icons.Filled.PictureInPictureAlt, "PiP", onPip),
+                Triple(Icons.Outlined.FolderOpen, "Sub file", onSubtitleFile),
+                Triple(Icons.Outlined.Info, "Info", onInfo),
+            )
+            cells.chunked(4).forEach { row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    row.forEach { (icon, label, action) ->
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable(onClick = action)
+                                .padding(vertical = 4.dp),
+                        ) {
+                            Icon(
+                                icon,
+                                contentDescription = label,
+                                tint = Color.White,
+                                modifier = Modifier.size(26.dp),
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                label,
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
+                    repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HintsCard(onGotIt: () -> Unit) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.55f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        val card = RoundedCornerShape(28.dp)
+        Column(
+            Modifier
+                .padding(horizontal = 40.dp)
+                .clip(card)
+                .background(Color(0xFF1C1C22))
+                .border(1.dp, Color.White.copy(alpha = 0.12f), card)
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text("Control with swipes", color = Color.White, style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(12.dp))
+            Text("◀ Left edge up/down: brightness", color = Color.White, style = MaterialTheme.typography.bodyLarge)
+            Spacer(Modifier.height(6.dp))
+            Text("Right edge up/down: volume ▶", color = Color.White, style = MaterialTheme.typography.bodyLarge)
+            Spacer(Modifier.height(6.dp))
+            Text("◀ ▶ Sideways: seek", color = Color.White, style = MaterialTheme.typography.bodyLarge)
+            Spacer(Modifier.height(6.dp))
+            Text("Double-tap sides: skip ±10s", color = Color.White, style = MaterialTheme.typography.bodyLarge)
+            Spacer(Modifier.height(6.dp))
+            Text("Pinch: zoom", color = Color.White, style = MaterialTheme.typography.bodyLarge)
+            Spacer(Modifier.height(16.dp))
+            GlassButton("Got it", filled = true, modifier = Modifier.fillMaxWidth(), onClick = onGotIt)
+        }
     }
 }

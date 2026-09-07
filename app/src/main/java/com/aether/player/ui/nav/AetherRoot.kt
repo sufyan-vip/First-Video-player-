@@ -77,6 +77,7 @@ import com.aether.player.ui.player.PlayerScreen
 import com.aether.player.ui.playlists.PlaylistDetailScreen
 import com.aether.player.ui.playlists.PlaylistsScreen
 import com.aether.player.ui.search.SearchScreen
+import com.aether.player.ui.settings.SettingsDetailScreen
 import com.aether.player.ui.settings.SettingsScreen
 import com.aether.player.ui.theme.LocalAnimScale
 import com.aether.player.ui.theme.animDur
@@ -124,7 +125,8 @@ fun AetherRoot(
     val inPlayer = route.startsWith("player")
     val hideNav = inPlayer || route.startsWith("search") || route.startsWith("url") ||
         route.startsWith("playlist/") || route.startsWith("history") ||
-        route.startsWith("downloads") || route.startsWith("diagnostics")
+        route.startsWith("downloads") || route.startsWith("diagnostics") ||
+        route.startsWith("settings/")
 
     LaunchedEffect(inPlayer, playerState.locked) {
         onImmersive(inPlayer)
@@ -289,7 +291,18 @@ fun AetherRoot(
                             )
                         }
                         composable("settings") {
-                            SettingsScreen(onOpenDiagnostics = { nav.navigate("diagnostics") })
+                            SettingsScreen(onOpenCategory = { nav.navigate("settings/$it") })
+                        }
+                        composable(
+                            "settings/{category}",
+                            arguments = listOf(navArgument("category") { type = NavType.StringType }),
+                        ) { entry ->
+                            val category = entry.arguments?.getString("category") ?: return@composable
+                            SettingsDetailScreen(
+                                category = category,
+                                onBack = { nav.popBackStack() },
+                                onOpenDiagnostics = { nav.navigate("diagnostics") },
+                            )
                         }
                         composable("history") {
                             HistoryScreen(

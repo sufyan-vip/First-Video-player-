@@ -56,6 +56,7 @@ data class PlayerUiState(
     val hasPrevious: Boolean = false,
     val hasNext: Boolean = false,
     val playWhenReady: Boolean = false,
+    val muted: Boolean = false,
 )
 
 data class PlaybackError(

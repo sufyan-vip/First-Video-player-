@@ -749,19 +749,15 @@ class PlayerManager(
     private fun mapError(error: PlaybackException): PlaybackError {
         val title = when (error.errorCode) {
             PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
-            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
-            -> "Network unavailable"
+            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "Network unavailable"
             PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> "File not found"
             PlaybackException.ERROR_CODE_IO_NO_PERMISSION -> "Permission denied"
             PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
-            PlaybackException.ERROR_CODE_DECODING_FAILED,
-            -> "Codec unavailable"
+            PlaybackException.ERROR_CODE_DECODING_FAILED -> "Codec unavailable"
             PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
-            PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
-            -> "Unsupported format"
+            PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED -> "Unsupported format"
             PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE,
-            PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
-            -> "Stream unavailable"
+            PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> "Stream unavailable"
             else -> "Playback error"
         }
         return PlaybackError(title, error.message ?: error.errorCodeName, error.errorCode)

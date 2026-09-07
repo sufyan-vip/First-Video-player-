@@ -196,13 +196,17 @@ fun GlassSettingsRow(
 
 @Composable
 fun GlassToggleRow(title: String, subtitle: String? = null, checked: Boolean, onChecked: (Boolean) -> Unit) {
-    GlassSettingsRow(title = title, subtitle = subtitle) {
-        Switch(
-            checked = checked,
-            onCheckedChange = onChecked,
-            colors = SwitchDefaults.colors(checkedTrackColor = MaterialTheme.colorScheme.primary),
-        )
-    }
+    GlassSettingsRow(
+        title = title,
+        subtitle = subtitle,
+        trailing = {
+            Switch(
+                checked = checked,
+                onCheckedChange = onChecked,
+                colors = SwitchDefaults.colors(checkedTrackColor = MaterialTheme.colorScheme.primary),
+            )
+        },
+    )
 }
 
 @Composable

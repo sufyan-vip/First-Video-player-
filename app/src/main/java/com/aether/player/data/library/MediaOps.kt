@@ -68,7 +68,7 @@ class MediaOps(private val context: Context) {
 
     private fun consentOrError(e: SecurityException, uris: List<Uri>, write: Boolean): FileResult {
         if (Build.VERSION.SDK_INT >= 29 && e is RecoverableSecurityException) {
-            return FileResult.Consent(e.userAction.action.intentSender)
+            return FileResult.Consent(e.userAction.actionIntent.intentSender)
         }
         if (Build.VERSION.SDK_INT >= 30) {
             val pending = if (write) {

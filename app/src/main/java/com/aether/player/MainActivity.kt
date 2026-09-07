@@ -46,7 +46,7 @@ class MainActivity : ComponentActivity() {
                 AetherRoot(
                     container = container,
                     onEnterPip = { enterPip() },
-                    onImmersive = { immersive -> setImmersive(immersive) },
+                    onImmersive = { immersive -> setImmersiveMode(immersive) },
                 )
             }
         }
@@ -105,7 +105,7 @@ class MainActivity : ComponentActivity() {
         runCatching { enterPictureInPictureMode(params) }
     }
 
-    private fun setImmersive(immersive: Boolean) {
+    private fun setImmersiveMode(immersive: Boolean) {
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         if (immersive) {
             controller.hide(WindowInsetsCompat.Type.systemBars())

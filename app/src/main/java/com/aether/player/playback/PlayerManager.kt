@@ -22,6 +22,7 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
@@ -108,8 +109,10 @@ class PlayerManager(
                     .setBufferDurationsMs(b[0], b[1], b[2], b[3])
                     .build(),
             )
-            .setLoadErrorHandlingPolicy(
-                AetherLoadPolicy(DefaultLoadErrorHandlingPolicy(), s.maxRetries.coerceIn(0, 10)),
+            .setMediaSourceFactory(
+                DefaultMediaSourceFactory(context).setLoadErrorHandlingPolicy(
+                    AetherLoadPolicy(DefaultLoadErrorHandlingPolicy(), s.maxRetries.coerceIn(0, 10)),
+                ),
             )
             .setSeekBackIncrementMs(10_000)
             .setSeekForwardIncrementMs(10_000)

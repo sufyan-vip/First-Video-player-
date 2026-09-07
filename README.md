@@ -36,7 +36,12 @@ APKs:
 - `app/build/outputs/apk/debug/app-debug.apk`
 - `app/build/outputs/apk/release/app-release.apk` (debug-signed so it is installable)
 
-CI on this branch builds both APKs, uploads them as GitHub Actions artifacts (`aether-apks`), and commits copies under `dist/`.
+A ready-to-run GitHub Actions workflow is checked in as [`docs/github-actions-android.yml`](docs/github-actions-android.yml). Copy it to `.github/workflows/android.yml` on a token that has the `workflows` permission, and Actions will emit:
+
+- `dist/Aether-debug.apk`
+- `dist/Aether-release.apk`
+
+Until then, build locally with Android Studio or the SDK command line (JDK 17 + Android platform 35).
 
 ## Install
 

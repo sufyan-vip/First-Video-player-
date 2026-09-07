@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aether.player.data.prefs.AccentColor
@@ -36,7 +37,7 @@ data class GlassTokens(
     val highlight: Color = Color.White.copy(alpha = 0.22f),
     val blur: Boolean = true,
     val intensity: Float = 0.72f,
-    val corner = 24.dp,
+    val corner: Dp = 24.dp,
 )
 
 fun accentOf(accent: AccentColor): Color = when (accent) {

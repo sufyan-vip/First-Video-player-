@@ -429,16 +429,19 @@ fun PlayerScreen(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    AndroidView(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
-                            .background(glass.surfaceStrong),
-                        factory = { ctx ->
-                            MediaRouteButton(ctx)
-                        },
-                    )
-                    Spacer(Modifier.width(8.dp))
+                    val castButton = remember {
+                        runCatching { MediaRouteButton(context) }.getOrNull()
+                    }
+                    if (castButton != null) {
+                        AndroidView(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(glass.surfaceStrong),
+                            factory = { castButton },
+                        )
+                        Spacer(Modifier.width(8.dp))
+                    }
                     GlassIconButton(Icons.Outlined.Audiotrack, "Audio") { audioSheet = true }
                     Spacer(Modifier.width(8.dp))
                     GlassIconButton(Icons.Outlined.ClosedCaption, "Subtitles") { textSheet = true }

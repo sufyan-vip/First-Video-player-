@@ -141,7 +141,7 @@ fun GlassChip(
             .background(if (selected) MaterialTheme.colorScheme.primary else glass.surfaceStrong)
             .border(1.dp, if (selected) Color.Transparent else glass.border, shape)
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 9.dp),
+            .padding(horizontal = 16.dp, vertical = 11.dp),
         color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
         style = MaterialTheme.typography.labelLarge,
         maxLines = 1,

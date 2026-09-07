@@ -13,27 +13,31 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VideoLibrary
-import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.PlaylistPlay
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,9 +49,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -112,8 +118,6 @@ fun AetherRoot(
     val tabs = listOf(
         Tab("home", "Home", Icons.Outlined.Home, Icons.Filled.Home),
         Tab("videos", "Videos", Icons.Outlined.VideoLibrary, Icons.Filled.VideoLibrary),
-        Tab("folders", "Folders", Icons.Outlined.Folder, Icons.Filled.Folder),
-        Tab("playlists", "Playlists", Icons.Outlined.PlaylistPlay, Icons.Filled.PlaylistPlay),
         Tab("settings", "Settings", Icons.Outlined.Settings, Icons.Filled.Settings),
     )
     val animScale = LocalAnimScale.current
@@ -170,33 +174,58 @@ fun AetherRoot(
                         exit = fadeOut(tween(animDur(180, animScale))) +
                             slideOutVertically(tween(animDur(240, animScale))) { it },
                     ) {
-                        NavigationBar(
-                            containerColor = Color.Black.copy(alpha = 0.35f),
-                            contentColor = Color.White,
-                            modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars),
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .windowInsetsPadding(WindowInsets.navigationBars)
+                                .padding(horizontal = 24.dp, vertical = 12.dp),
+                            contentAlignment = Alignment.Center,
                         ) {
-                            val current = tabs.find { route.startsWith(it.route) }?.route ?: "home"
-                            tabs.forEach { tab ->
-                                NavigationBarItem(
-                                    selected = current == tab.route,
-                                    onClick = {
-                                        nav.navigate(tab.route) {
-                                            popUpTo(nav.graph.findStartDestination().id) { saveState = true }
-                                            launchSingleTop = true
-                                            restoreState = true
-                                        }
-                                    },
-                                    icon = {
+                            val pill = RoundedCornerShape(30.dp)
+                            Row(
+                                modifier = Modifier
+                                    .clip(pill)
+                                    .background(Color(0xFF232329))
+                                    .border(1.dp, Color.White.copy(alpha = 0.10f), pill)
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                val current = tabs.find { route.startsWith(it.route) }?.route ?: "home"
+                                tabs.forEach { tab ->
+                                    val selected = current == tab.route
+                                    val itemShape = RoundedCornerShape(24.dp)
+                                    Row(
+                                        modifier = Modifier
+                                            .clip(itemShape)
+                                            .background(
+                                                if (selected) MaterialTheme.colorScheme.primary
+                                                else Color.Transparent,
+                                            )
+                                            .clickable {
+                                                nav.navigate(tab.route) {
+                                                    popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+                                                    launchSingleTop = true
+                                                    restoreState = true
+                                                }
+                                            }
+                                            .padding(horizontal = 18.dp, vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
                                         Icon(
-                                            if (current == tab.route) tab.selected else tab.icon,
+                                            if (selected) tab.selected else tab.icon,
                                             contentDescription = tab.label,
+                                            tint = if (selected) MaterialTheme.colorScheme.onPrimary else Color.White,
+                                            modifier = Modifier.size(22.dp),
                                         )
-                                    },
-                                    label = { Text(tab.label) },
-                                    colors = NavigationBarItemDefaults.colors(
-                                        indicatorColor = Color.White.copy(alpha = 0.12f),
-                                    ),
-                                )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            tab.label,
+                                            color = if (selected) MaterialTheme.colorScheme.onPrimary else Color.White,
+                                            style = MaterialTheme.typography.labelLarge,
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

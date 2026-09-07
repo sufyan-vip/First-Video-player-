@@ -1,11 +1,15 @@
 package com.aether.player.playback
 
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.media.AudioManager
+import android.media.MediaMetadataRetriever
 import android.media.audiofx.Equalizer
 import android.net.Uri
 import android.os.Build
+import android.provider.MediaStore
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -13,17 +17,22 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import com.aether.player.data.db.VideoEntity
 import com.aether.player.data.library.LibraryRepository
+import com.aether.player.data.prefs.AetherSettings
 import com.aether.player.data.prefs.AspectMode
+import com.aether.player.data.prefs.BufferProfile
 import com.aether.player.data.prefs.UserPreferences
 import com.aether.player.domain.PlaylistLogic
 import com.aether.player.domain.RepeatMode
+import com.aether.player.domain.SubtitleShift
 import com.aether.player.domain.WatchProgressLogic
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,6 +44,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.Locale
 
 class PlayerManager(
@@ -44,24 +55,12 @@ class PlayerManager(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val trackSelector = DefaultTrackSelector(context)
-    val player: ExoPlayer = ExoPlayer.Builder(context)
-        .setTrackSelector(trackSelector)
-        .setAudioAttributes(
-            AudioAttributes.Builder()
-                .setUsage(C.USAGE_MEDIA)
-                .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                .build(),
-            true,
-        )
-        .setHandleAudioBecomingNoisy(true)
-        .setLoadControl(
-            DefaultLoadControl.Builder()
-                .setBufferDurationsMs(15_000, 50_000, 1_500, 5_000)
-                .build(),
-        )
-        .setSeekBackIncrementMs(10_000)
-        .setSeekForwardIncrementMs(10_000)
-        .build()
+
+    var player: ExoPlayer = buildEngine(AetherSettings())
+        private set
+
+    private var settingsCache = AetherSettings()
+    private var appliedNetKey = netKey(AetherSettings())
 
     private val _state = MutableStateFlow(PlayerUiState())
     val state: StateFlow<PlayerUiState> = _state
@@ -74,8 +73,70 @@ class PlayerManager(
     private var boostFrom: Float = 1f
     private var equalizer: Equalizer? = null
     private var lastSavedAt = 0L
+    var lastSubtitleUri: Uri? = null
+        private set
 
     init {
+        attachListener()
+        attachEqualizer()
+        ensureTicker()
+        startService()
+        scope.launch {
+            prefs.settings.collect { next ->
+                val prevLang = settingsCache.defaultAudioLang
+                settingsCache = next
+                if (next.defaultAudioLang != prevLang) applyAudioPrefs()
+            }
+        }
+    }
+
+    private fun buildEngine(s: AetherSettings): ExoPlayer {
+        val b = bufferDurations(s.bufferProfile)
+        return ExoPlayer.Builder(context)
+            .setTrackSelector(trackSelector)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                    .build(),
+                true,
+            )
+            .setHandleAudioBecomingNoisy(true)
+            .setLoadControl(
+                DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(b[0], b[1], b[2], b[3])
+                    .build(),
+            )
+            .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(s.maxRetries.coerceIn(0, 10)))
+            .setSeekBackIncrementMs(10_000)
+            .setSeekForwardIncrementMs(10_000)
+            .build()
+    }
+
+    private fun bufferDurations(profile: BufferProfile): IntArray = when (profile) {
+        BufferProfile.SMALL -> intArrayOf(5_000, 15_000, 1_000, 2_000)
+        BufferProfile.STANDARD -> intArrayOf(15_000, 50_000, 1_500, 5_000)
+        BufferProfile.LARGE -> intArrayOf(30_000, 120_000, 2_500, 5_000)
+    }
+
+    private fun netKey(s: AetherSettings): String = "${s.bufferProfile.name}:${s.maxRetries}"
+
+    /** Rebuilds the engine when buffer/retry settings changed. Called at queue start (no state loss). */
+    private fun maybeRebuildEngine() {
+        val key = netKey(settingsCache)
+        if (key == appliedNetKey) return
+        appliedNetKey = key
+        persistProgress(increment = false)
+        runCatching { player.stop() }
+        runCatching { player.release() }
+        player = buildEngine(settingsCache)
+        attachListener()
+        attachEqualizer()
+        applyAudioPrefs()
+        requestSessionRebuild()
+    }
+
+    private fun attachListener() {
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 publish { it.copy(playing = isPlaying, playWhenReady = player.playWhenReady) }
@@ -131,13 +192,11 @@ class PlayerManager(
                 publish { it.copy(speed = playbackParameters.speed) }
             }
         })
-        attachEqualizer()
-        ensureTicker()
-        startService()
     }
 
     fun playQueue(items: List<VideoEntity>, startIndex: Int, startPositionMs: Long? = null) {
         if (items.isEmpty()) return
+        maybeRebuildEngine()
         val idx = startIndex.coerceIn(0, items.lastIndex)
         val mediaItems = items.map { it.toMediaItem() }
         player.setMediaItems(mediaItems, idx, startPositionMs ?: C.TIME_UNSET)
@@ -159,6 +218,7 @@ class PlayerManager(
         scope.launch {
             val settings = prefs.settings.first()
             player.setPlaybackSpeed(settings.defaultSpeed)
+            applyAudioPrefs()
             if (settings.resumePlayback && startPositionMs == null) {
                 val pos = items[idx].lastPositionMs
                 if (WatchProgressLogic.shouldOfferResume(pos, items[idx].durationMs, settings.completionThreshold)) {
@@ -317,25 +377,104 @@ class PlayerManager(
         }
     }
 
+    // ---------- chapters (timeline windows: queue items / multi-period streams) ----------
+
+    fun currentChapters(): List<ChapterItem> {
+        val tl = player.currentTimeline
+        if (tl.isEmpty || tl.windowCount <= 1) return emptyList()
+        val queue = _state.value.queue
+        val w = Timeline.Window()
+        return (0 until tl.windowCount).map { i ->
+            tl.getWindow(i, w)
+            val title = w.mediaItem.mediaMetadata.title?.toString()
+                ?.takeIf { it.isNotBlank() }
+                ?: queue.getOrNull(i)?.title
+                ?: "Part ${i + 1}"
+            val dur = w.durationUs.takeIf { it != C.TIME_UNSET }?.div(1000L)
+                ?: queue.getOrNull(i)?.durationMs
+                ?: 0L
+            ChapterItem(i, title, dur.coerceAtLeast(0L))
+        }
+    }
+
+    fun chapterFractions(): List<Float> {
+        val chapters = currentChapters()
+        if (chapters.isEmpty()) return emptyList()
+        val total = chapters.sumOf { it.durationMs }.takeIf { it > 0 } ?: return emptyList()
+        var acc = 0L
+        return chapters.dropLast(1).map { chapter ->
+            acc += chapter.durationMs
+            (acc / total.toFloat()).coerceIn(0f, 1f)
+        }
+    }
+
+    fun seekToChapter(index: Int) {
+        val tl = player.currentTimeline
+        if (index in 0 until tl.windowCount) {
+            player.seekTo(index, C.TIME_UNSET)
+            player.play()
+        }
+    }
+
+    // ---------- subtitles ----------
+
     fun loadExternalSubtitle(uri: Uri) {
-        val current = _state.value.current ?: return
-        val pos = player.currentPosition
-        val play = player.playWhenReady
-        val config = MediaItem.SubtitleConfiguration.Builder(uri)
-            .setMimeType(guessSubtitleMime(uri))
-            .setLanguage("und")
-            .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
-            .build()
-        val item = MediaItem.Builder()
-            .setUri(current.uri)
-            .setMediaId(current.id)
-            .setSubtitleConfigurations(listOf(config))
-            .setMediaMetadata(MediaMetadata.Builder().setTitle(current.title).build())
-            .build()
-        player.setMediaItem(item, pos)
-        player.prepare()
-        player.playWhenReady = play
-        flash("Subtitle loaded")
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
+        }
+        lastSubtitleUri = uri
+        scope.launch {
+            val effective = withContext(Dispatchers.IO) { applySubtitleDelay(uri) }
+            val current = _state.value.current ?: return@launch
+            val pos = player.currentPosition
+            val play = player.playWhenReady
+            val config = MediaItem.SubtitleConfiguration.Builder(effective)
+                .setMimeType(guessSubtitleMime(effective))
+                .setLanguage("und")
+                .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                .build()
+            val item = MediaItem.Builder()
+                .setUri(current.uri)
+                .setMediaId(current.id)
+                .setSubtitleConfigurations(listOf(config))
+                .setMediaMetadata(MediaMetadata.Builder().setTitle(current.title).build())
+                .build()
+            player.setMediaItem(item, pos)
+            player.prepare()
+            player.playWhenReady = play
+            flash(if (effective != uri) "Subtitle loaded (delay applied)" else "Subtitle loaded")
+        }
+    }
+
+    suspend fun readSubtitleText(): String? = withContext(Dispatchers.IO) {
+        val uri = lastSubtitleUri ?: return@withContext null
+        runCatching {
+            context.contentResolver.openInputStream(uri)?.bufferedReader()?.readText()?.take(2_000_000)
+        }.getOrNull()
+    }
+
+    fun lastSubtitleExtension(): String? {
+        val raw = lastSubtitleUri?.toString()?.lowercase(Locale.US)?.substringBefore('?') ?: return null
+        return raw.substringAfterLast('.', "").takeIf { it.isNotEmpty() }
+    }
+
+    private fun applySubtitleDelay(uri: Uri): Uri {
+        val delay = settingsCache.subtitleDelayMs
+        if (delay == 0) return uri
+        val name = uri.toString().lowercase(Locale.US).substringBefore('?')
+        val isSrt = name.endsWith(".srt")
+        val isVtt = name.endsWith(".vtt")
+        if (!isSrt && !isVtt) return uri
+        val text = runCatching {
+            context.contentResolver.openInputStream(uri)?.bufferedReader()?.readText()?.take(2_000_000)
+        }.getOrNull() ?: return uri
+        val shifted = if (isSrt) SubtitleShift.shiftSrt(text, delay) else SubtitleShift.shiftVtt(text, delay)
+        val file = File(context.cacheDir, "aether_sub_${System.currentTimeMillis()}.${if (isSrt) "srt" else "vtt"}")
+        runCatching { file.writeText(shifted) }.onFailure { return uri }
+        return Uri.fromFile(file)
     }
 
     fun selectAudioTrack(choice: TrackChoice?) {
@@ -373,27 +512,84 @@ class PlayerManager(
             .build()
     }
 
-    fun setAudioDelayUs(delayUs: Long) {
-        player.setSkipSilenceEnabled(false)
-        runCatching {
-            player.trackSelectionParameters = player.trackSelectionParameters
-        }
-        flash("Audio delay ${delayUs / 1000}ms")
+    fun applyAudioPrefs() {
+        val lang = settingsCache.defaultAudioLang
+        trackSelector.parameters = trackSelector.buildUponParameters()
+            .setPreferredAudioLanguage(if (lang == "system" || lang.isBlank()) null else lang)
+            .build()
     }
 
-    fun applyEqualizerPreset(bandLevels: ShortArray?) {
-        val eq = equalizer ?: return
+    // ---------- equalizer (best-effort, device dependent) ----------
+
+    fun equalizerInfo(): EqInfo? {
+        val eq = equalizer ?: return null
+        return runCatching {
+            EqInfo(eq.numberOfBands.toInt(), eq.bandLevelRange[0], eq.bandLevelRange[1])
+        }.getOrNull()
+    }
+
+    fun applyEqualizerPreset(name: String) {
+        val eq = equalizer ?: run {
+            flash("Equalizer unavailable")
+            return
+        }
         runCatching {
-            if (bandLevels == null) {
+            if (name == EQ_OFF) {
                 eq.enabled = false
+                flash("Equalizer off")
                 return
             }
+            val n = eq.numberOfBands.toInt()
+            val range = eq.bandLevelRange
+            val curve = eqCurves[name] ?: eqCurves[EQ_FLAT]!!
             eq.enabled = true
-            bandLevels.forEachIndexed { index, level ->
-                if (index < eq.numberOfBands) {
-                    eq.setBandLevel(index.toShort(), level)
-                }
+            for (band in 0 until n) {
+                val pos = if (n == 1) 2f else band * 4f / (n - 1)
+                val lo = pos.toInt().coerceIn(0, 3)
+                val frac = curve[lo] + (curve[lo + 1] - curve[lo]) * (pos - lo)
+                val level = if (frac >= 0) frac * range[1] else frac * -range[0]
+                eq.setBandLevel(band.toShort(), level.toInt().coerceIn(range[0].toInt(), range[1].toInt()).toShort())
             }
+            flash("EQ: $name")
+        }.onFailure {
+            flash("Equalizer unavailable")
+        }
+    }
+
+    // ---------- frame capture ----------
+
+    suspend fun captureFrame(): CaptureResult = withContext(Dispatchers.IO) {
+        if (Build.VERSION.SDK_INT < 29) {
+            return@withContext CaptureResult.Unavailable("Frame capture needs Android 10 or newer")
+        }
+        val video = state.value.current
+            ?: return@withContext CaptureResult.Unavailable("Nothing is playing")
+        val posUs = (if (player.currentPosition > 0) player.currentPosition else state.value.positionMs) * 1000L
+        val retriever = MediaMetadataRetriever()
+        try {
+            runCatching { retriever.setDataSource(context, Uri.parse(video.uri)) }
+                .onFailure { return@withContext CaptureResult.Unavailable("This stream does not allow frame capture") }
+            val frame = retriever.getFrameAtTime(posUs, MediaMetadataRetriever.OPTION_CLOSEST)
+                ?: retriever.getFrameAtTime(0)
+                ?: return@withContext CaptureResult.Unavailable("Could not decode a frame")
+            val name = "Aether_${System.currentTimeMillis()}.png"
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, name)
+                put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Aether")
+            }
+            val collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            val dest = context.contentResolver.insert(collection, values)
+                ?: return@withContext CaptureResult.Unavailable("Storage unavailable")
+            context.contentResolver.openOutputStream(dest)?.use { out ->
+                frame.compress(Bitmap.CompressFormat.PNG, 100, out)
+            } ?: return@withContext CaptureResult.Unavailable("Storage unavailable")
+            frame.recycle()
+            CaptureResult.Saved(dest)
+        } catch (t: Throwable) {
+            CaptureResult.Unavailable(t.message ?: "Capture failed")
+        } finally {
+            runCatching { retriever.release() }
         }
     }
 
@@ -497,7 +693,15 @@ class PlayerManager(
         }
     }
 
+    private fun requestSessionRebuild() {
+        val intent = Intent(context, AetherPlayerService::class.java)
+            .setAction(AetherPlayerService.ACTION_REBUILD)
+        runCatching { context.startService(intent) }
+    }
+
     private fun attachEqualizer() {
+        runCatching { equalizer?.release() }
+        equalizer = null
         runCatching {
             equalizer = Equalizer(0, player.audioSessionId).apply { enabled = false }
         }
@@ -591,6 +795,19 @@ class PlayerManager(
     }
 
     companion object {
+        const val EQ_OFF = "Off"
+        const val EQ_FLAT = "Flat"
+        val EQ_PRESETS = listOf("Off", "Flat", "Bass", "Treble", "Vocal", "Movie")
+
+        /** 5-point curves in -1..1, interpolated across device bands. */
+        private val eqCurves = mapOf(
+            EQ_FLAT to floatArrayOf(0f, 0f, 0f, 0f, 0f),
+            "Bass" to floatArrayOf(0.8f, 0.5f, 0f, -0.3f, -0.4f),
+            "Treble" to floatArrayOf(-0.4f, -0.2f, 0.1f, 0.5f, 0.8f),
+            "Vocal" to floatArrayOf(-0.3f, 0f, 0.5f, 0.6f, 0.1f),
+            "Movie" to floatArrayOf(0.7f, 0.1f, -0.2f, 0.1f, 0.6f),
+        )
+
         @Volatile
         private var instance: PlayerManager? = null
 

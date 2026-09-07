@@ -23,12 +23,20 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var autoPipEnabled = true
+    private var backgroundPlayback = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         WindowCompat.setDecorFitsSystemWindows(window, false)
         val container = (application as AetherApp).container
+        activityScope.launch {
+            container.preferences.settings.collect { settings ->
+                autoPipEnabled = settings.autoPip
+                backgroundPlayback = settings.backgroundPlayback
+            }
+        }
         handleIncoming(intent?.data)
         setContent {
             val settings by container.preferences.settings.collectAsState(
@@ -52,9 +60,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
+        if (!autoPipEnabled) return
         val pm = (application as AetherApp).container.playerManager
         if (pm.state.value.playing && !pm.state.value.miniPlayer) {
             enterPip()
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (!backgroundPlayback && !isInPictureInPictureMode) {
+            val pm = (application as AetherApp).container.playerManager
+            if (pm.state.value.playing) pm.player.pause()
         }
     }
 

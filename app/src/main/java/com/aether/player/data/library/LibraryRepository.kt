@@ -1,5 +1,6 @@
 package com.aether.player.data.library
 
+import android.net.Uri
 import com.aether.player.data.db.AetherDatabase
 import com.aether.player.data.db.BookmarkEntity
 import com.aether.player.data.db.DownloadEntity
@@ -42,11 +43,11 @@ class LibraryRepository(
 
     suspend fun getVideo(id: String) = db.videos().getById(id)
 
-    suspend fun scanLibrary(excluded: Set<String> = emptySet()) {
+    suspend fun scanLibrary(excluded: Set<String> = emptySet(), hideDotFiles: Boolean = false) {
         _scanning.value = true
         _scanError.value = null
         try {
-            val (videos, folders) = scanner.scan(excluded)
+            val (videos, folders) = scanner.scan(excluded, hideDotFiles)
             val existing = db.videos().getAll().associateBy { it.id }
             val merged = videos.map { fresh ->
                 val old = existing[fresh.id]
@@ -224,4 +225,63 @@ class LibraryRepository(
                 SortMode.LAST_PLAYED -> list.sortedByDescending { it.lastPlayedAt }
             }
         }
+
+    suspend fun scanTree(treeUri: Uri): Pair<Int, Int> {
+        val (videos, folders) = scanner.scanTree(treeUri)
+        if (videos.isEmpty()) return 0 to 0
+        val existing = db.videos().getAll().associateBy { it.id }
+        val merged = videos.map { fresh ->
+            val old = existing[fresh.id]
+            if (old == null) fresh else fresh.copy(
+                isFavorite = old.isFavorite,
+                isHidden = old.isHidden,
+                playCount = old.playCount,
+                lastPlayedAt = old.lastPlayedAt,
+                lastPositionMs = old.lastPositionMs,
+                completed = old.completed,
+            )
+        }
+        db.videos().upsertAll(merged)
+        db.folders().upsertAll(folders)
+        return merged.size to folders.size
+    }
+
+    suspend fun upsertLocalUri(uri: String, title: String, folderName: String = "Imports"): VideoEntity {
+        db.videos().getByUri(uri)?.let { return it }
+        val now = System.currentTimeMillis()
+        val entity = VideoEntity(
+            id = "saf-${uri.hashCode()}-$now",
+            uri = uri,
+            title = title.ifBlank { uri.substringAfterLast('/').ifBlank { "Video" } },
+            path = uri,
+            folderId = "saf-imports",
+            folderName = folderName,
+            durationMs = 0L,
+            sizeBytes = 0L,
+            width = 0,
+            height = 0,
+            dateAdded = now,
+            dateModified = now,
+            mimeType = "video/*",
+            bitrate = 0,
+            isNetwork = false,
+        )
+        db.videos().upsert(entity)
+        return entity
+    }
+
+    suspend fun setVideoTitle(id: String, title: String) = db.videos().setTitle(id, title)
+
+    suspend fun updateDownloadSystemId(id: Long, systemId: Long) = db.downloads().setSystemId(id, systemId)
+
+    suspend fun getDownload(id: Long) = db.downloads().get(id)
+
+    suspend fun movePlaylistItem(playlistId: Long, from: Int, to: Int) {
+        val items = db.playlists().getItems(playlistId)
+        if (from !in items.indices || to !in items.indices || from == to) return
+        val ids = items.map { it.videoId }.toMutableList()
+        val moved = ids.removeAt(from)
+        ids.add(to, moved)
+        db.playlists().replaceItems(playlistId, ids)
+    }
 }

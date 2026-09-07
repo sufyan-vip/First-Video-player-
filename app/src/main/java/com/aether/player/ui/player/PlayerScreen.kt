@@ -1,8 +1,12 @@
 package com.aether.player.ui.player
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
+import android.net.Uri
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
@@ -10,8 +14,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -29,6 +35,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Forward10
@@ -40,11 +47,11 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Audiotrack
 import androidx.compose.material.icons.outlined.ClosedCaption
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Speed
-import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -69,6 +76,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -77,13 +85,19 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
+import androidx.mediarouter.app.MediaRouteButton
 import com.aether.player.AetherApp
 import com.aether.player.data.prefs.AspectMode
+import com.aether.player.data.prefs.TimelineStyle
 import com.aether.player.domain.GestureMath
 import com.aether.player.domain.TimeFormat
 import com.aether.player.domain.WatchProgressLogic
+import com.aether.player.playback.CaptureResult
 import com.aether.player.ui.components.GlassButton
 import com.aether.player.ui.components.GlassIconButton
+import com.aether.player.ui.theme.LocalAnimScale
+import com.aether.player.ui.theme.LocalGlass
+import com.aether.player.ui.theme.animDur
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -104,13 +118,19 @@ fun PlayerScreen(
     val haptics = LocalHapticFeedback.current
     val audio = remember { context.getSystemService(AudioManager::class.java) }
     val activity = context as? Activity
+    val animScale = LocalAnimScale.current
+    val glass = LocalGlass.current
     var controls by remember { mutableStateOf(true) }
     var more by remember { mutableStateOf(false) }
     var audioSheet by remember { mutableStateOf(false) }
     var textSheet by remember { mutableStateOf(false) }
     var infoSheet by remember { mutableStateOf(false) }
+    var chaptersSheet by remember { mutableStateOf(false) }
+    var bookmarksSheet by remember { mutableStateOf(false) }
+    var aiSheet by remember { mutableStateOf(false) }
     var resumeAsk by remember { mutableStateOf(false) }
     var brightness by remember { mutableFloatStateOf(activity?.window?.attributes?.screenBrightness?.takeIf { it >= 0 } ?: 0.5f) }
+    val boostActive = remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     val subtitlePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -171,16 +191,58 @@ fun PlayerScreen(
                         if (settings.haptics) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     },
                     onLongPress = {
-                        if (settings.gestureLongPressSpeed) pm.beginSpeedBoost()
+                        if (settings.gestureLongPressSpeed) {
+                            boostActive.value = true
+                            pm.beginSpeedBoost()
+                        }
+                    },
+                    onPress = {
+                        try {
+                            awaitRelease()
+                        } finally {
+                            if (boostActive.value) {
+                                boostActive.value = false
+                                pm.endSpeedBoost()
+                            }
+                        }
                     },
                 )
             }
             .pointerInput(settings, state.locked) {
                 if (state.locked) return@pointerInput
+                var totalX = 0f
+                var totalY = 0f
+                var minimized = false
                 detectDragGestures(
-                    onDragEnd = { },
+                    onDragStart = {
+                        totalX = 0f
+                        totalY = 0f
+                        minimized = false
+                    },
+                    onDragEnd = {
+                        if (!minimized && settings.gestureSwipeDownMini &&
+                            totalY > 260f && totalY > 2f * kotlin.math.abs(totalX)
+                        ) {
+                            minimized = true
+                            pm.setMiniPlayer(true)
+                            onBack()
+                        } else if (totalY < -180f && -totalY > 2f * kotlin.math.abs(totalX)) {
+                            controls = true
+                        }
+                    },
+                    onDragCancel = { },
                     onDrag = { change, drag ->
                         change.consume()
+                        totalX += drag.x
+                        totalY += drag.y
+                        if (!minimized && settings.gestureSwipeDownMini &&
+                            totalY > 320f && kotlin.math.abs(totalX) < 140f
+                        ) {
+                            minimized = true
+                            pm.setMiniPlayer(true)
+                            onBack()
+                            return@detectDragGestures
+                        }
                         val x = change.position.x
                         val absX = kotlin.math.abs(drag.x)
                         val absY = kotlin.math.abs(drag.y)
@@ -206,10 +268,6 @@ fun PlayerScreen(
                                 audio.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0)
                                 val pct = if (max == 0) 0 else next * 100 / max
                                 pm.flash("Volume $pct%", pct / 100f)
-                            }
-                            drag.y > 24 && settings.gestureSwipeDownMini -> {
-                                pm.setMiniPlayer(true)
-                                onBack()
                             }
                         }
                     },
@@ -304,15 +362,42 @@ fun PlayerScreen(
             ) {
                 Text(err.title, color = Color.White, style = MaterialTheme.typography.titleLarge)
                 Text(err.detail, color = Color(0xFFFFC9D1), style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "Code ${err.code}",
+                    color = Color(0xFFFFC9D1).copy(alpha = 0.7f),
+                    style = MaterialTheme.typography.labelLarge,
+                )
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     GlassButton("Retry", filled = true, onClick = { pm.retry() })
-                    GlassButton("Details") { /* already visible */ }
+                    GlassButton("Copy") {
+                        val cm = context.getSystemService(ClipboardManager::class.java)
+                        cm.setPrimaryClip(
+                            ClipData.newPlainText(
+                                "Aether error",
+                                "${err.title}: ${err.detail} (code ${err.code})",
+                            ),
+                        )
+                        pm.flash("Error copied")
+                    }
+                    state.current?.let { video ->
+                        GlassButton("Open with") {
+                            val intent = Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(Uri.parse(video.uri), video.mimeType ?: "video/*")
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            runCatching { context.startActivity(Intent.createChooser(intent, "Open with")) }
+                        }
+                    }
                 }
             }
         }
 
-        AnimatedVisibility(visible = controls && !state.locked, enter = fadeIn(), exit = fadeOut()) {
+        AnimatedVisibility(
+            visible = controls && !state.locked,
+            enter = fadeIn(tween(animDur(220, animScale))),
+            exit = fadeOut(tween(animDur(180, animScale))),
+        ) {
             Box(Modifier.fillMaxSize()) {
                 Box(
                     Modifier
@@ -344,6 +429,16 @@ fun PlayerScreen(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
+                    AndroidView(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(glass.surfaceStrong),
+                        factory = { ctx ->
+                            MediaRouteButton(ctx).apply { setAlwaysVisible(true) }
+                        },
+                    )
+                    Spacer(Modifier.width(8.dp))
                     GlassIconButton(Icons.Outlined.Audiotrack, "Audio") { audioSheet = true }
                     Spacer(Modifier.width(8.dp))
                     GlassIconButton(Icons.Outlined.ClosedCaption, "Subtitles") { textSheet = true }
@@ -389,15 +484,44 @@ fun PlayerScreen(
                 ) {
                     val duration = state.durationMs.coerceAtLeast(0L)
                     val pos = state.positionMs.coerceAtLeast(0L)
-                    Slider(
-                        value = if (duration <= 0L) 0f else pos / duration.toFloat(),
-                        onValueChange = { frac -> pm.seekTo((frac * duration).toLong()) },
-                        colors = SliderDefaults.colors(
-                            thumbColor = MaterialTheme.colorScheme.primary,
-                            activeTrackColor = MaterialTheme.colorScheme.primary,
-                            inactiveTrackColor = Color.White.copy(alpha = 0.25f),
-                        ),
-                    )
+                    val trackScaleY = when (settings.timelineStyle) {
+                        TimelineStyle.SLIM -> 0.6f
+                        TimelineStyle.BOLD -> 1f
+                        TimelineStyle.CHAPTER -> 1.15f
+                    }
+                    Box(Modifier.fillMaxWidth()) {
+                        Slider(
+                            value = if (duration <= 0L) 0f else pos / duration.toFloat(),
+                            onValueChange = { frac -> pm.seekTo((frac * duration).toLong()) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .graphicsLayer { scaleY = trackScaleY },
+                            colors = SliderDefaults.colors(
+                                thumbColor = MaterialTheme.colorScheme.primary,
+                                activeTrackColor = MaterialTheme.colorScheme.primary,
+                                inactiveTrackColor = Color.White.copy(alpha = 0.25f),
+                            ),
+                        )
+                        if (settings.timelineStyle == TimelineStyle.CHAPTER) {
+                            val fractions = remember(state.queue, duration) { pm.chapterFractions() }
+                            if (fractions.isNotEmpty()) {
+                                val density = LocalDensity.current
+                                Canvas(Modifier.matchParentSize()) {
+                                    val inset = with(density) { 12.dp.toPx() }
+                                    val y = size.height / 2f
+                                    fractions.forEach { frac ->
+                                        val x = inset + frac * (size.width - inset * 2)
+                                        drawLine(
+                                            Color.White.copy(alpha = 0.6f),
+                                            androidx.compose.ui.geometry.Offset(x, y - 9f),
+                                            androidx.compose.ui.geometry.Offset(x, y + 9f),
+                                            strokeWidth = 3f,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(TimeFormat.formatMs(pos), color = Color.White, style = MaterialTheme.typography.labelLarge)
                         Text(
@@ -464,6 +588,7 @@ fun PlayerScreen(
     if (more) {
         PlayerMoreSheet(
             state = state,
+            eqInfo = pm.equalizerInfo(),
             onDismiss = { more = false },
             onSpeed = { pm.setSpeed(it); more = false },
             onAspect = { pm.setAspect(it) },
@@ -494,14 +619,36 @@ fun PlayerScreen(
             },
             onRotate = {
                 activity?.let {
-                    it.requestedOrientation =
-                        if (it.requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE) {
-                            ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-                        } else {
-                            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                    val next = if (it.requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE) {
+                        ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                    } else {
+                        ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                    }
+                    it.requestedOrientation = next
+                    val id = state.current?.id
+                    if (id != null) {
+                        scope.launch {
+                            app.container.preferences.putString(
+                                "ori_$id",
+                                if (next == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE) "sensor_landscape" else "sensor_portrait",
+                            )
                         }
+                    }
                 }
             },
+            onChapters = { chaptersSheet = true; more = false },
+            onBookmarks = { bookmarksSheet = true; more = false },
+            onAi = { aiSheet = true; more = false },
+            onCapture = {
+                more = false
+                scope.launch {
+                    when (val result = pm.captureFrame()) {
+                        is CaptureResult.Saved -> pm.flash("Frame saved")
+                        is CaptureResult.Unavailable -> pm.flash(result.reason)
+                    }
+                }
+            },
+            onEqPreset = { pm.applyEqualizerPreset(it) },
         )
     }
     if (audioSheet) {
@@ -528,15 +675,23 @@ fun PlayerScreen(
             },
         )
     }
-    if (infoSheet && state.current != null) {
-        VideoInfoSheet(video = state.current!!, state = state, onDismiss = { infoSheet = false })
-    }
-}
-subrip", "*/*"))
-                    textSheet = false
-                }
-            },
+    if (chaptersSheet) {
+        ChaptersSheet(
+            chapters = pm.currentChapters(),
+            currentIndex = pm.player.currentMediaItemIndex,
+            onSeek = { pm.seekToChapter(it); chaptersSheet = false },
+            onDismiss = { chaptersSheet = false },
         )
+    }
+    if (bookmarksSheet && state.current != null) {
+        BookmarksSheet(
+            videoId = state.current!!.id,
+            onSeek = { pm.seekTo(it); bookmarksSheet = false },
+            onDismiss = { bookmarksSheet = false },
+        )
+    }
+    if (aiSheet) {
+        AiSheet(pm = pm, onDismiss = { aiSheet = false })
     }
     if (infoSheet && state.current != null) {
         VideoInfoSheet(video = state.current!!, state = state, onDismiss = { infoSheet = false })

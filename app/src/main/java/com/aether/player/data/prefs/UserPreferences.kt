@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.aetherStore by preferencesDataStore("aether_settings")
@@ -20,6 +21,8 @@ enum class AspectMode { FIT, FILL, CROP, STRETCH, ORIGINAL, RATIO_16_9, RATIO_4_
 enum class SortMode { NAME, DATE_ADDED, DATE_MODIFIED, DURATION, SIZE, LAST_PLAYED }
 enum class ViewMode { GRID, LIST, COMPACT }
 enum class TimelineStyle { SLIM, BOLD, CHAPTER }
+enum class AiProvider { OFF, GEMINI, OPENROUTER }
+enum class BufferProfile { SMALL, STANDARD, LARGE }
 
 data class AetherSettings(
     val themeMode: ThemeMode = ThemeMode.AMOLED,
@@ -29,6 +32,8 @@ data class AetherSettings(
     val blurIntensity: Float = 0.55f,
     val animationScale: Float = 1f,
     val compactMode: Boolean = false,
+    val highContrast: Boolean = false,
+    val reduceMotion: Boolean = false,
     val defaultSpeed: Float = 1f,
     val autoPlayNext: Boolean = true,
     val resumePlayback: Boolean = true,
@@ -55,6 +60,7 @@ data class AetherSettings(
     val subtitleSize: Float = 1f,
     val subtitlePosition: Float = 0.12f,
     val subtitleDelayMs: Int = 0,
+    val defaultAudioLang: String = "system",
     val historyEnabled: Boolean = true,
     val incognito: Boolean = false,
     val sortMode: SortMode = SortMode.DATE_ADDED,
@@ -66,8 +72,11 @@ data class AetherSettings(
     val rememberOrientation: Boolean = false,
     val orientation: String = "auto",
     val aiEnabled: Boolean = false,
+    val aiProvider: AiProvider = AiProvider.OFF,
     val aiEndpoint: String = "",
     val aiModel: String = "",
+    val bufferProfile: BufferProfile = BufferProfile.STANDARD,
+    val maxRetries: Int = 3,
     val excludedFolders: String = "",
     val hideHiddenFiles: Boolean = true,
 )
@@ -86,8 +95,11 @@ class UserPreferences(private val context: Context) {
         context.aetherStore.edit { it[stringPreferencesKey(key)] = value }
     }
 
-    fun secureKeyFlow(key: String): Flow<String> =
-        context.aetherStore.data.map { it[stringPreferencesKey(key)] ?: "" }
+    suspend fun getString(key: String): String? =
+        context.aetherStore.data.map { it[stringPreferencesKey(key)] }.first()
+
+    fun stringFlow(key: String, default: String = ""): Flow<String> =
+        context.aetherStore.data.map { it[stringPreferencesKey(key)] ?: default }
 }
 
 private fun Preferences.toSettings(): AetherSettings = AetherSettings(
@@ -98,6 +110,8 @@ private fun Preferences.toSettings(): AetherSettings = AetherSettings(
     blurIntensity = this[floatPreferencesKey("blur")] ?: 0.55f,
     animationScale = this[floatPreferencesKey("anim")] ?: 1f,
     compactMode = this[booleanPreferencesKey("compact")] ?: false,
+    highContrast = this[booleanPreferencesKey("hiContrast")] ?: false,
+    reduceMotion = this[booleanPreferencesKey("reduceMotion")] ?: false,
     defaultSpeed = this[floatPreferencesKey("speed")] ?: 1f,
     autoPlayNext = this[booleanPreferencesKey("autoNext")] ?: true,
     resumePlayback = this[booleanPreferencesKey("resume")] ?: true,
@@ -124,6 +138,7 @@ private fun Preferences.toSettings(): AetherSettings = AetherSettings(
     subtitleSize = this[floatPreferencesKey("subSize")] ?: 1f,
     subtitlePosition = this[floatPreferencesKey("subPos")] ?: 0.12f,
     subtitleDelayMs = this[intPreferencesKey("subDelay")] ?: 0,
+    defaultAudioLang = this[stringPreferencesKey("audioLang")] ?: "system",
     historyEnabled = this[booleanPreferencesKey("history")] ?: true,
     incognito = this[booleanPreferencesKey("incognito")] ?: false,
     sortMode = enumValueOr(this[stringPreferencesKey("sort")], SortMode.DATE_ADDED),
@@ -135,8 +150,11 @@ private fun Preferences.toSettings(): AetherSettings = AetherSettings(
     rememberOrientation = this[booleanPreferencesKey("rememberOri")] ?: false,
     orientation = this[stringPreferencesKey("orientation")] ?: "auto",
     aiEnabled = this[booleanPreferencesKey("ai")] ?: false,
+    aiProvider = enumValueOr(this[stringPreferencesKey("aiProvider")], AiProvider.OFF),
     aiEndpoint = this[stringPreferencesKey("aiEndpoint")] ?: "",
     aiModel = this[stringPreferencesKey("aiModel")] ?: "",
+    bufferProfile = enumValueOr(this[stringPreferencesKey("buffer")], BufferProfile.STANDARD),
+    maxRetries = this[intPreferencesKey("retries")] ?: 3,
     excludedFolders = this[stringPreferencesKey("excluded")] ?: "",
     hideHiddenFiles = this[booleanPreferencesKey("hideHidden")] ?: true,
 )
@@ -149,6 +167,8 @@ private fun androidx.datastore.preferences.core.MutablePreferences.write(s: Aeth
     this[floatPreferencesKey("blur")] = s.blurIntensity
     this[floatPreferencesKey("anim")] = s.animationScale
     this[booleanPreferencesKey("compact")] = s.compactMode
+    this[booleanPreferencesKey("hiContrast")] = s.highContrast
+    this[booleanPreferencesKey("reduceMotion")] = s.reduceMotion
     this[floatPreferencesKey("speed")] = s.defaultSpeed
     this[booleanPreferencesKey("autoNext")] = s.autoPlayNext
     this[booleanPreferencesKey("resume")] = s.resumePlayback
@@ -175,6 +195,7 @@ private fun androidx.datastore.preferences.core.MutablePreferences.write(s: Aeth
     this[floatPreferencesKey("subSize")] = s.subtitleSize
     this[floatPreferencesKey("subPos")] = s.subtitlePosition
     this[intPreferencesKey("subDelay")] = s.subtitleDelayMs
+    this[stringPreferencesKey("audioLang")] = s.defaultAudioLang
     this[booleanPreferencesKey("history")] = s.historyEnabled
     this[booleanPreferencesKey("incognito")] = s.incognito
     this[stringPreferencesKey("sort")] = s.sortMode.name
@@ -186,8 +207,11 @@ private fun androidx.datastore.preferences.core.MutablePreferences.write(s: Aeth
     this[booleanPreferencesKey("rememberOri")] = s.rememberOrientation
     this[stringPreferencesKey("orientation")] = s.orientation
     this[booleanPreferencesKey("ai")] = s.aiEnabled
+    this[stringPreferencesKey("aiProvider")] = s.aiProvider.name
     this[stringPreferencesKey("aiEndpoint")] = s.aiEndpoint
     this[stringPreferencesKey("aiModel")] = s.aiModel
+    this[stringPreferencesKey("buffer")] = s.bufferProfile.name
+    this[intPreferencesKey("retries")] = s.maxRetries
     this[stringPreferencesKey("excluded")] = s.excludedFolders
     this[booleanPreferencesKey("hideHidden")] = s.hideHiddenFiles
 }

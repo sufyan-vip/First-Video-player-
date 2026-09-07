@@ -17,6 +17,19 @@ class AetherPlayerService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        buildSession()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_REBUILD) {
+            buildSession()
+        }
+        return super.onStartCommand(intent, flags, startId)
+    }
+
+    private fun buildSession() {
+        mediaSession?.release()
+        mediaSession = null
         val app = application as AetherApp
         val player: Player = app.container.playerManager.player
         player.setAudioAttributes(
@@ -45,5 +58,9 @@ class AetherPlayerService : MediaSessionService() {
             mediaSession = null
         }
         super.onDestroy()
+    }
+
+    companion object {
+        const val ACTION_REBUILD = "com.aether.player.REBUILD_SESSION"
     }
 }

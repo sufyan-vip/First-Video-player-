@@ -23,6 +23,10 @@ import com.aether.player.data.prefs.PerformanceMode
 import com.aether.player.data.prefs.ThemeMode
 
 val LocalGlass = staticCompositionLocalOf { GlassTokens() }
+val LocalAnimScale = staticCompositionLocalOf { 1f }
+
+fun animDur(baseMs: Int, scale: Float): Int =
+    (baseMs * scale).toInt().coerceIn(1, 2000)
 
 @Immutable
 data class GlassTokens(
@@ -61,6 +65,7 @@ fun AetherTheme(
     val accent = accentOf(settings.accent)
     val context = LocalContext.current
     val dynamic = settings.dynamicColor && settings.accent == AccentColor.SYSTEM && Build.VERSION.SDK_INT >= 31
+    val hi = settings.highContrast
     val scheme = when {
         dynamic && dark -> dynamicDarkColorScheme(context)
         dynamic && !dark -> dynamicLightColorScheme(context)
@@ -69,21 +74,23 @@ fun AetherTheme(
             onPrimary = Color(0xFF041016),
             secondary = Color(0xFF9AA4FF),
             tertiary = Color(0xFF7CFFE1),
-            background = if (amoled) Color(0xFF050508) else Color(0xFF0C0D14),
-            surface = if (amoled) Color(0xFF050508) else Color(0xFF12131C),
-            onBackground = Color(0xFFF4F6FB),
-            onSurface = Color(0xFFF4F6FB),
-            onSurfaceVariant = Color(0xFFB7BCC9),
-            outline = Color.White.copy(alpha = 0.12f),
+            background = if (amoled || hi) Color.Black else Color(0xFF0C0D14),
+            surface = if (amoled || hi) Color.Black else Color(0xFF12131C),
+            onBackground = Color.White,
+            onSurface = Color.White,
+            onSurfaceVariant = if (hi) Color.White else Color(0xFFB7BCC9),
+            outline = if (hi) Color.White.copy(alpha = 0.4f) else Color.White.copy(alpha = 0.12f),
             error = Color(0xFFFF6B81),
         )
         else -> lightColorScheme(
             primary = accent,
             onPrimary = Color.White,
             background = Color(0xFFF3F5FA),
-            surface = Color(0xFFF8F9FD),
-            onBackground = Color(0xFF12131A),
-            onSurface = Color(0xFF12131A),
+            surface = Color.White,
+            onBackground = Color.Black,
+            onSurface = Color.Black,
+            onSurfaceVariant = if (hi) Color.Black else Color(0xFF3A3F4B),
+            outline = if (hi) Color.Black.copy(alpha = 0.35f) else Color.Black.copy(alpha = 0.1f),
         )
     }
     val glass = GlassTokens(
@@ -91,11 +98,17 @@ fun AetherTheme(
         else Color.White.copy(alpha = 0.55f),
         surfaceStrong = if (dark) Color.White.copy(alpha = 0.12f + settings.glassIntensity * 0.08f)
         else Color.White.copy(alpha = 0.78f),
-        border = if (dark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
+        border = when {
+            hi && dark -> Color.White.copy(alpha = 0.38f)
+            hi -> Color.Black.copy(alpha = 0.3f)
+            dark -> Color.White.copy(alpha = 0.12f)
+            else -> Color.Black.copy(alpha = 0.08f)
+        },
         highlight = if (dark) Color.White.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.7f),
         blur = settings.performanceMode != PerformanceMode.BATTERY_SAVER && settings.blurIntensity > 0.15f,
         intensity = settings.glassIntensity,
     )
+    val animScale = if (settings.reduceMotion) 0f else settings.animationScale.coerceIn(0.25f, 2f)
     val typography = MaterialTheme.typography.copy(
         headlineLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 32.sp, letterSpacing = (-0.4).sp),
         headlineMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 24.sp, letterSpacing = (-0.2).sp),
@@ -105,7 +118,7 @@ fun AetherTheme(
         bodyMedium = TextStyle(fontWeight = FontWeight.Normal, fontSize = 14.sp, lineHeight = 20.sp),
         labelLarge = TextStyle(fontWeight = FontWeight.Medium, fontSize = 13.sp, letterSpacing = 0.2.sp),
     )
-    CompositionLocalProvider(LocalGlass provides glass) {
+    CompositionLocalProvider(LocalGlass provides glass, LocalAnimScale provides animScale) {
         MaterialTheme(colorScheme = scheme, typography = typography, content = content)
     }
 }

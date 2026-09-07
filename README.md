@@ -61,7 +61,11 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/FEATURES.md](docs/FEA
 ./gradlew testDebugUnitTest
 ```
 
-Unit tests cover watch-progress math, gesture math, playlist/queue logic, URL validation, bookmarks, and time formatting.
+Unit tests cover watch-progress math, gesture math, playlist/queue logic, URL validation, bookmarks, time formatting, subtitle shifting, and AI command parsing.
+
+## AI assistant (optional, off by default)
+
+Aether can explain videos, summarize markers, propose chapters, answer grounded questions, run natural-language commands (`jump to 12:30`), and translate loaded SRT/VTT subtitles — powered by either **Google Gemini** or **OpenRouter**. Keys are stored encrypted on-device. Setup takes a minute: see [docs/AI_SETUP.md](docs/AI_SETUP.md).
 
 ## Privacy
 

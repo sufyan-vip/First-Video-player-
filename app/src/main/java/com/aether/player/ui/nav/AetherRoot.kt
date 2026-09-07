@@ -8,6 +8,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -19,16 +20,17 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.PlaylistPlay
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.PlaylistPlay
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.VideoLibrary
+import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -58,7 +60,10 @@ import com.aether.player.AppContainer
 import com.aether.player.ui.components.AetherBackground
 import com.aether.player.ui.components.MiniPlayerBar
 import com.aether.player.ui.components.PermissionGate
+import com.aether.player.ui.diagnostics.DiagnosticsScreen
+import com.aether.player.ui.downloads.DownloadsScreen
 import com.aether.player.ui.folders.FoldersScreen
+import com.aether.player.ui.history.HistoryScreen
 import com.aether.player.ui.home.HomeScreen
 import com.aether.player.ui.library.LibraryViewModel
 import com.aether.player.ui.library.VideosScreen
@@ -67,6 +72,8 @@ import com.aether.player.ui.playlists.PlaylistDetailScreen
 import com.aether.player.ui.playlists.PlaylistsScreen
 import com.aether.player.ui.search.SearchScreen
 import com.aether.player.ui.settings.SettingsScreen
+import com.aether.player.ui.theme.LocalAnimScale
+import com.aether.player.ui.theme.animDur
 import com.aether.player.ui.url.OpenUrlScreen
 
 private data class Tab(
@@ -109,18 +116,27 @@ fun AetherRoot(
         Tab("playlists", "Playlists", Icons.Outlined.PlaylistPlay, Icons.Filled.PlaylistPlay),
         Tab("settings", "Settings", Icons.Outlined.Settings, Icons.Filled.Settings),
     )
+    val animScale = LocalAnimScale.current
     val inPlayer = route.startsWith("player")
-    val hideNav = inPlayer || route.startsWith("search") || route.startsWith("url") || route.startsWith("playlist/")
+    val hideNav = inPlayer || route.startsWith("search") || route.startsWith("url") ||
+        route.startsWith("playlist/") || route.startsWith("history") ||
+        route.startsWith("downloads") || route.startsWith("diagnostics")
 
     LaunchedEffect(inPlayer, playerState.locked) {
         onImmersive(inPlayer)
-        val requested = container.preferences
-        requested.settings.collect { settings ->
+        container.preferences.settings.collect { settings ->
+            val videoId = container.playerManager.state.value.current?.id
+            val saved = if (inPlayer && settings.rememberOrientation && videoId != null) {
+                container.preferences.getString("ori_$videoId")
+            } else {
+                null
+            }
+            val mode = saved ?: settings.orientation
             activity?.requestedOrientation = when {
                 !inPlayer -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                settings.orientation == "portrait" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-                settings.orientation == "landscape" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                settings.orientation == "sensor" -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+                mode == "portrait" || mode == "sensor_portrait" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                mode == "landscape" || mode == "sensor_landscape" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                mode == "sensor" -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
                 else -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             }
         }
@@ -149,8 +165,10 @@ fun AetherRoot(
                 bottomBar = {
                     AnimatedVisibility(
                         visible = !hideNav,
-                        enter = fadeIn() + slideInVertically { it },
-                        exit = fadeOut() + slideOutVertically { it },
+                        enter = fadeIn(tween(animDur(220, animScale))) +
+                            slideInVertically(tween(animDur(300, animScale))) { it },
+                        exit = fadeOut(tween(animDur(180, animScale))) +
+                            slideOutVertically(tween(animDur(240, animScale))) { it },
                     ) {
                         NavigationBar(
                             containerColor = Color.Black.copy(alpha = 0.35f),
@@ -169,7 +187,7 @@ fun AetherRoot(
                                         }
                                     },
                                     icon = {
-                                        androidx.compose.material3.Icon(
+                                        Icon(
                                             if (current == tab.route) tab.selected else tab.icon,
                                             contentDescription = tab.label,
                                         )
@@ -195,6 +213,8 @@ fun AetherRoot(
                                 onOpenFolder = { nav.navigate("folders") },
                                 onOpenPlaylists = { nav.navigate("playlists") },
                                 onOpenSettings = { nav.navigate("settings") },
+                                onOpenHistory = { nav.navigate("history") },
+                                onOpenDownloads = { nav.navigate("downloads") },
                             )
                         }
                         composable("videos") {
@@ -202,12 +222,23 @@ fun AetherRoot(
                                 vm = libraryViewModel,
                                 onOpenVideo = { nav.navigate("player") },
                                 onOpenSearch = { nav.navigate("search") },
+                                onShowInFolder = { folderId -> nav.navigate("folders?focus=$folderId") },
                             )
                         }
-                        composable("folders") {
+                        composable(
+                            "folders?focus={focus}",
+                            arguments = listOf(
+                                navArgument("focus") {
+                                    type = NavType.StringType
+                                    nullable = true
+                                    defaultValue = null
+                                },
+                            ),
+                        ) { entry ->
                             FoldersScreen(
                                 vm = libraryViewModel,
                                 onOpenVideo = { nav.navigate("player") },
+                                focusId = entry.arguments?.getString("focus"),
                             )
                         }
                         composable("playlists") {
@@ -228,16 +259,40 @@ fun AetherRoot(
                                 onOpenVideo = { nav.navigate("player") },
                             )
                         }
-                        composable("settings") { SettingsScreen() }
-                        composable("search") {
-                            SearchScreen(
+                        composable("settings") {
+                            SettingsScreen(onOpenDiagnostics = { nav.navigate("diagnostics") })
+                        }
+                        composable("history") {
+                            HistoryScreen(
                                 vm = libraryViewModel,
                                 onBack = { nav.popBackStack() },
                                 onOpenVideo = { nav.navigate("player") },
                             )
                         }
+                        composable("downloads") {
+                            DownloadsScreen(
+                                vm = libraryViewModel,
+                                onBack = { nav.popBackStack() },
+                            )
+                        }
+                        composable("diagnostics") {
+                            DiagnosticsScreen(
+                                vm = libraryViewModel,
+                                onBack = { nav.popBackStack() },
+                            )
+                        }
+                        composable("search") {
+                            SearchScreen(
+                                vm = libraryViewModel,
+                                onBack = { nav.popBackStack() },
+                                onOpenVideo = { nav.navigate("player") },
+                                onOpenFolder = { folderId -> nav.navigate("folders?focus=$folderId") },
+                                onOpenPlaylist = { id -> nav.navigate("playlist/$id") },
+                            )
+                        }
                         composable("url") {
                             OpenUrlScreen(
+                                vm = libraryViewModel,
                                 onBack = { nav.popBackStack() },
                                 onPlay = { nav.navigate("player") },
                             )
@@ -255,8 +310,10 @@ fun AetherRoot(
 
                     AnimatedVisibility(
                         visible = !inPlayer && playerState.current != null,
-                        enter = slideInVertically { it } + fadeIn(),
-                        exit = slideOutVertically { it } + fadeOut(),
+                        enter = slideInVertically(tween(animDur(300, animScale))) { it } +
+                            fadeIn(tween(animDur(220, animScale))),
+                        exit = slideOutVertically(tween(animDur(240, animScale))) { it } +
+                            fadeOut(tween(animDur(180, animScale))),
                         modifier = Modifier.align(Alignment.BottomCenter),
                     ) {
                         MiniPlayerBar(

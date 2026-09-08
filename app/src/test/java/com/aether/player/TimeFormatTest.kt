@@ -10,10 +10,10 @@ import org.junit.Test
 class TimeFormatTest {
     @Test
     fun formats() {
-        assertEquals("1:02", TimeFormat.formatMs(62_000))
-        assertEquals("1:01:01", TimeFormat.formatMs(3_661_000))
-        assertEquals("−0:10", TimeFormat.formatRemaining(10_000, 20_000))
-        assertTrue(TimeFormat.prettyBytes(2048).contains("KB"))
+        assertEquals("1:02", TimeFormat.formatMs(62_000L))
+        assertEquals("1:01:01", TimeFormat.formatMs(3_661_000L))
+        assertEquals("−0:10", TimeFormat.formatRemaining(10_000L, 20_000L))
+        assertTrue(TimeFormat.prettyBytes(2048L).contains("KB"))
         assertTrue(TimeFormat.prettyResolution(1920, 1080).contains("1080p"))
         assertEquals("Off", TimeFormat.sleepLabel(0))
         assertEquals("End of video", TimeFormat.sleepLabel(-1))
@@ -21,8 +21,8 @@ class TimeFormatTest {
 
     @Test
     fun bookmarks() {
-        assertEquals("Bookmark 1:00", BookmarkLogic.sanitizedTitle("  ", 60_000))
-        assertTrue(BookmarkLogic.canAdd(1_000, 10_000))
-        assertFalse(BookmarkLogic.canAdd(20_000, 10_000))
+        assertEquals("Bookmark 1:00", BookmarkLogic.sanitizedTitle("  ", 60_000L))
+        assertTrue(BookmarkLogic.canAdd(1_000L, 10_000L))
+        assertFalse(BookmarkLogic.canAdd(20_000L, 10_000L))
     }
 }

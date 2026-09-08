@@ -13,6 +13,9 @@ interface VideoDao {
     @Query("SELECT * FROM videos WHERE isHidden = 0 ORDER BY dateAdded DESC")
     fun observeAll(): Flow<List<VideoEntity>>
 
+    @Query("SELECT * FROM videos WHERE isHidden = 1 ORDER BY dateAdded DESC")
+    fun observeHidden(): Flow<List<VideoEntity>>
+
     @Query("SELECT * FROM videos WHERE isHidden = 0")
     suspend fun getAll(): List<VideoEntity>
 
@@ -69,8 +72,11 @@ interface VideoDao {
     @Query("DELETE FROM videos WHERE id = :id")
     suspend fun delete(id: String)
 
-    @Query("DELETE FROM videos WHERE isNetwork = 0 AND id NOT IN (:keep)")
+    @Query("DELETE FROM videos WHERE isNetwork = 0 AND id NOT LIKE 'saf-%' AND id NOT IN (:keep)")
     suspend fun deleteMissingLocal(keep: List<String>)
+
+    @Query("UPDATE videos SET title = :title WHERE id = :id")
+    suspend fun setTitle(id: String, title: String)
 
     @Query("SELECT COUNT(*) FROM videos WHERE isHidden = 0")
     fun observeCount(): Flow<Int>
@@ -175,6 +181,12 @@ interface DownloadDao {
 
     @Query("UPDATE downloads SET status = :status, progress = :progress, localUri = :localUri WHERE id = :id")
     suspend fun update(id: Long, status: String, progress: Int, localUri: String?)
+
+    @Query("UPDATE downloads SET systemDownloadId = :systemId WHERE id = :id")
+    suspend fun setSystemId(id: Long, systemId: Long)
+
+    @Query("SELECT * FROM downloads WHERE id = :id")
+    suspend fun get(id: Long): DownloadEntity?
 
     @Query("DELETE FROM downloads WHERE id = :id")
     suspend fun delete(id: Long)

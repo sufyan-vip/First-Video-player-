@@ -1,5 +1,6 @@
 package com.aether.player.playback
 
+import android.net.Uri
 import com.aether.player.data.db.VideoEntity
 import com.aether.player.data.prefs.AspectMode
 import com.aether.player.domain.RepeatMode
@@ -11,6 +12,23 @@ data class TrackChoice(
     val language: String?,
     val selected: Boolean,
 )
+
+data class ChapterItem(
+    val index: Int,
+    val title: String,
+    val durationMs: Long,
+)
+
+data class EqInfo(
+    val bands: Int,
+    val minLevel: Short,
+    val maxLevel: Short,
+)
+
+sealed interface CaptureResult {
+    data class Saved(val uri: Uri) : CaptureResult
+    data class Unavailable(val reason: String) : CaptureResult
+}
 
 data class PlayerUiState(
     val current: VideoEntity? = null,
@@ -38,6 +56,7 @@ data class PlayerUiState(
     val hasPrevious: Boolean = false,
     val hasNext: Boolean = false,
     val playWhenReady: Boolean = false,
+    val muted: Boolean = false,
 )
 
 data class PlaybackError(

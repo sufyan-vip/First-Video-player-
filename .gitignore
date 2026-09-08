@@ -9,6 +9,8 @@
 .externalNativeBuild
 .cxx
 *.apk
+!dist/Aether-debug.apk
+!dist/Aether-release.apk
 *.aab
 *.ap_
 *.dex

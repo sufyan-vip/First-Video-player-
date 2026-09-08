@@ -1,5 +1,8 @@
 package com.aether.player.ui.home
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -16,6 +19,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.PlaylistPlay
 import androidx.compose.material.icons.outlined.Search
@@ -24,14 +28,21 @@ import androidx.compose.material.icons.outlined.VideoFile
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.aether.player.AetherApp
 import com.aether.player.data.db.VideoEntity
+import com.aether.player.domain.TimeFormat
 import com.aether.player.ui.components.ContinueCard
 import com.aether.player.ui.components.FolderCard
 import com.aether.player.ui.components.GlassButton
+import com.aether.player.ui.components.GlassCard
 import com.aether.player.ui.components.GlassIconButton
 import com.aether.player.ui.components.SectionHeader
 import com.aether.player.ui.components.VideoGridCard
@@ -46,8 +57,29 @@ fun HomeScreen(
     onOpenFolder: () -> Unit,
     onOpenPlaylists: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenHistory: () -> Unit,
+    onOpenDownloads: () -> Unit,
 ) {
     val ui by vm.ui.collectAsState()
+    val context = LocalContext.current
+    val app = context.applicationContext as AetherApp
+    val savedUrls by app.container.library.savedUrls().collectAsState(initial = emptyList())
+
+    val notice by vm.notice.collectAsState()
+    LaunchedEffect(notice) {
+        notice?.let {
+            Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
+            vm.consumeNotice()
+        }
+    }
+
+    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) vm.openVideoDoc(uri) { onOpenVideo() }
+    }
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) vm.importFolder(uri)
+    }
+
     fun play(v: VideoEntity, queue: List<VideoEntity> = ui.videos) {
         vm.play(v, queue)
         onOpenVideo()
@@ -77,11 +109,16 @@ fun HomeScreen(
         }
         Spacer(Modifier.height(18.dp))
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            GlassButton("Open URL", icon = Icons.Outlined.Link, filled = true, onClick = onOpenUrl)
+            GlassButton("Open video", icon = Icons.Outlined.VideoFile, filled = true, onClick = {
+                videoPicker.launch(arrayOf("video/*"))
+            })
+            GlassButton("Open folder", icon = Icons.Outlined.FolderOpen, onClick = { folderPicker.launch(null) })
+            GlassButton("Open URL", icon = Icons.Outlined.Link, onClick = onOpenUrl)
             GlassButton("Scan", icon = Icons.Outlined.VideoFile, onClick = { vm.scan() })
             GlassButton("Folders", icon = Icons.Outlined.FolderOpen, onClick = onOpenFolder)
             GlassButton("Playlists", icon = Icons.Outlined.PlaylistPlay, onClick = onOpenPlaylists)
-            GlassButton("Downloads", icon = Icons.Outlined.Download, onClick = onOpenPlaylists)
+            GlassButton("History", icon = Icons.Outlined.History, onClick = onOpenHistory)
+            GlassButton("Downloads", icon = Icons.Outlined.Download, onClick = onOpenDownloads)
         }
         if (ui.scanning) {
             Spacer(Modifier.height(12.dp))
@@ -91,23 +128,37 @@ fun HomeScreen(
             Spacer(Modifier.height(8.dp))
             Text(it, color = MaterialTheme.colorScheme.error)
         }
+        if (ui.videos.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            val totalBytes = remember(ui.videos) { ui.videos.sumOf { it.sizeBytes } }
+            val totalMs = remember(ui.videos) { ui.videos.sumOf { it.durationMs } }
+            GlassCard(modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    StatMini("${ui.videos.size}", "videos")
+                    StatMini(TimeFormat.prettyBytes(totalBytes), "storage")
+                    StatMini(TimeFormat.formatMs(totalMs), "runtime")
+                }
+            }
+        }
         if (ui.continueWatching.isNotEmpty()) {
             Spacer(Modifier.height(20.dp))
-            SectionHeader("Continue watching")
+            Text("Continue watching", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(10.dp))
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ui.continueWatching.forEach { v ->
-                    ContinueCard(v, onClick = { play(v, ui.continueWatching) })
+                    ContinueCard(v, onClick = { play(v, ui.continueWatching) }, modifier = Modifier.width(300.dp))
                 }
             }
         }
         if (ui.recentlyPlayed.isNotEmpty()) {
             Spacer(Modifier.height(20.dp))
-            SectionHeader("Recently played")
+            Text("Recently played", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(10.dp))
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ui.recentlyPlayed.take(12).forEach { v ->
                     VideoGridCard(
                         video = v,
-                        modifier = Modifier.width(160.dp),
+                        modifier = Modifier.width(170.dp),
                         onClick = { play(v, ui.recentlyPlayed) },
                         onLongClick = { vm.toggleFavorite(v.id) },
                     )
@@ -116,12 +167,13 @@ fun HomeScreen(
         }
         if (ui.recentlyAdded.isNotEmpty()) {
             Spacer(Modifier.height(20.dp))
-            SectionHeader("Recently added")
+            Text("Recently added", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(10.dp))
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ui.recentlyAdded.take(12).forEach { v ->
                     VideoGridCard(
                         video = v,
-                        modifier = Modifier.width(160.dp),
+                        modifier = Modifier.width(170.dp),
                         onClick = { play(v, ui.recentlyAdded) },
                         onLongClick = { vm.toggleFavorite(v.id) },
                     )
@@ -130,15 +182,37 @@ fun HomeScreen(
         }
         if (ui.favorites.isNotEmpty()) {
             Spacer(Modifier.height(20.dp))
-            SectionHeader("Favorites")
+            Text("Favorites", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(10.dp))
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ui.favorites.take(12).forEach { v ->
                     VideoGridCard(
                         video = v,
-                        modifier = Modifier.width(160.dp),
+                        modifier = Modifier.width(170.dp),
                         onClick = { play(v, ui.favorites) },
                         onLongClick = { vm.toggleFavorite(v.id) },
                     )
+                }
+            }
+        }
+        if (savedUrls.isNotEmpty()) {
+            Spacer(Modifier.height(20.dp))
+            SectionHeader("Network sources", action = "Open URL", onAction = onOpenUrl)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                savedUrls.take(10).forEach { item ->
+                    GlassCard(
+                        modifier = Modifier.width(230.dp),
+                        onClick = { vm.playUrl(item.url, item.title) { onOpenVideo() } },
+                    ) {
+                        Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            item.url,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }
@@ -147,7 +221,7 @@ fun HomeScreen(
             SectionHeader("Folders", action = "See all", onAction = onOpenFolder)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ui.folders.take(10).forEach { folder ->
-                    FolderCard(folder, onClick = onOpenFolder, modifier = Modifier.width(160.dp))
+                    FolderCard(folder, onClick = onOpenFolder, modifier = Modifier.width(170.dp))
                 }
             }
         }
@@ -166,9 +240,17 @@ fun HomeScreen(
             Spacer(Modifier.height(40.dp))
             Text("No videos yet", style = MaterialTheme.typography.titleLarge)
             Text(
-                "Scan your library or open a URL to start playing.",
+                "Scan your library, open a file or folder, or open a URL to start playing.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+@Composable
+private fun StatMini(value: String, label: String) {
+    Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+        Text(value, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

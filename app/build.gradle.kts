@@ -13,8 +13,8 @@ android {
         applicationId = "com.aether.player"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }
@@ -91,6 +91,8 @@ dependencies {
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.splashscreen)
+    implementation(libs.androidx.mediarouter)
+    implementation(libs.androidx.security.crypto)
     implementation(libs.coil.compose)
     implementation(libs.coil.video)
     implementation(libs.kotlinx.coroutines.android)

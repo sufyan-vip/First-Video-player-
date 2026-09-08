@@ -1,19 +1,25 @@
 package com.aether.player.ui.playlists
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -42,15 +48,34 @@ fun PlaylistDetailScreen(
         }
     }
     val videos by videosFlow.collectAsState(initial = emptyList())
+    var renaming by remember { mutableStateOf(false) }
+    var renameText by remember { mutableStateOf("") }
+    var confirmingDelete by remember { mutableStateOf(false) }
+    var manageIndex by remember { mutableStateOf<Int?>(null) }
+
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp)) {
         TextButton(onClick = onBack) { Text("← Playlists") }
         Text(playlist?.name ?: "Playlist", style = MaterialTheme.typography.headlineMedium)
         Text("${videos.size} videos", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        GlassButton("Play all", filled = true, modifier = Modifier.padding(vertical = 12.dp)) {
-            videos.firstOrNull()?.let {
-                vm.play(it, videos)
-                onOpenVideo()
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 12.dp)) {
+            GlassButton("Play all", filled = true) {
+                videos.firstOrNull()?.let {
+                    vm.play(it, videos)
+                    onOpenVideo()
+                }
             }
+            GlassButton("Shuffle") {
+                val shuffled = videos.shuffled()
+                shuffled.firstOrNull()?.let {
+                    vm.play(it, shuffled)
+                    onOpenVideo()
+                }
+            }
+            GlassButton("Rename") {
+                renameText = playlist?.name.orEmpty()
+                renaming = true
+            }
+            GlassButton("Delete") { confirmingDelete = true }
         }
         LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
             items(videos, key = { it.id }) { video: VideoEntity ->
@@ -60,9 +85,71 @@ fun PlaylistDetailScreen(
                         vm.play(video, videos)
                         onOpenVideo()
                     },
-                    onLongClick = { },
+                    onLongClick = { manageIndex = videos.indexOf(video) },
                 )
             }
         }
+    }
+
+    if (renaming) {
+        AlertDialog(
+            onDismissRequest = { renaming = false },
+            title = { Text("Rename playlist") },
+            text = {
+                OutlinedTextField(value = renameText, onValueChange = { renameText = it }, singleLine = true)
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.renamePlaylist(playlistId, renameText)
+                    renaming = false
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { renaming = false }) { Text("Cancel") } },
+        )
+    }
+    if (confirmingDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmingDelete = false },
+            title = { Text("Delete playlist?") },
+            text = { Text("The playlist will be removed. Videos stay in your library.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.deletePlaylist(playlistId)
+                    confirmingDelete = false
+                    onBack()
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmingDelete = false }) { Text("Cancel") } },
+        )
+    }
+    manageIndex?.let { index ->
+        val video = videos.getOrNull(index)
+        AlertDialog(
+            onDismissRequest = { manageIndex = null },
+            title = { Text(video?.title ?: "Video") },
+            text = {
+                Column {
+                    TextButton(
+                        onClick = {
+                            vm.movePlaylistItem(playlistId, index, index - 1)
+                            manageIndex = null
+                        },
+                        enabled = index > 0,
+                    ) { Text("Move up") }
+                    TextButton(
+                        onClick = {
+                            vm.movePlaylistItem(playlistId, index, index + 1)
+                            manageIndex = null
+                        },
+                        enabled = index < videos.lastIndex,
+                    ) { Text("Move down") }
+                    TextButton(onClick = {
+                        video?.let { vm.removeFromPlaylist(playlistId, it.id) }
+                        manageIndex = null
+                    }) { Text("Remove from playlist", color = MaterialTheme.colorScheme.error) }
+                }
+            },
+            confirmButton = { TextButton(onClick = { manageIndex = null }) { Text("Close") } },
+        )
     }
 }

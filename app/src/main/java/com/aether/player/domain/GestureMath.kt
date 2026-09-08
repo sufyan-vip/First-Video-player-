@@ -47,6 +47,22 @@ object GestureMath {
         return (fraction * maxVolume).toInt()
     }
 
+    /**
+     * Fractional volume steps for per-event accumulation. The Int variant truncates
+     * small drag events to zero, so callers must accumulate this Float and apply the
+     * integer part (e.g. swipe up on the right edge raises volume smoothly).
+     */
+    fun volumeDeltaF(
+        dragPx: Float,
+        heightPx: Float,
+        maxVolume: Int,
+        sensitivity: Float = DEFAULT_VOLUME_SENSITIVITY,
+    ): Float {
+        if (heightPx <= 0f || maxVolume <= 0) return 0f
+        val fraction = (-dragPx / heightPx) * sensitivity.coerceIn(0.25f, 3f)
+        return fraction * maxVolume
+    }
+
     fun clampUnit(value: Float): Float = value.coerceIn(0f, 1f)
 
     fun doubleTapSeekMs(intervalSeconds: Int): Long =

@@ -34,7 +34,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
@@ -55,14 +54,7 @@ fun GlassCard(
     Column(
         modifier = modifier
             .clip(shape)
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        glass.highlight.copy(alpha = glass.highlight.alpha * 0.55f),
-                        glass.surface,
-                    ),
-                ),
-            )
+            .background(glass.surface)
             .border(1.dp, glass.border, shape)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(16.dp),
@@ -105,7 +97,7 @@ fun GlassButton(
     onClick: () -> Unit,
 ) {
     val glass = LocalGlass.current
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(20.dp)
     Row(
         modifier = modifier
             .clip(shape)
@@ -146,10 +138,10 @@ fun GlassChip(
         text = text,
         modifier = modifier
             .clip(shape)
-            .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.9f) else glass.surface)
+            .background(if (selected) MaterialTheme.colorScheme.primary else glass.surfaceStrong)
             .border(1.dp, if (selected) Color.Transparent else glass.border, shape)
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 11.dp),
         color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
         style = MaterialTheme.typography.labelLarge,
         maxLines = 1,
@@ -170,15 +162,79 @@ fun GlassSettingsRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(20.dp))
             .background(glass.surface)
+            .border(1.dp, glass.border, RoundedCornerShape(20.dp))
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
-            Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(12.dp))
+            Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.width(14.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            if (subtitle != null) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (trailing != null) trailing()
+    }
+}
+
+/** Grouped card holding several borderless rows (modern settings style). */
+@Composable
+fun SettingsGroup(
+    title: String,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val glass = LocalGlass.current
+    val shape = RoundedCornerShape(24.dp)
+    Column(modifier = modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Text(
+            title,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(glass.surface)
+                .border(1.dp, glass.border, shape)
+                .padding(vertical = 6.dp),
+            content = content,
+        )
+    }
+}
+
+/** Borderless row for use inside [SettingsGroup]. */
+@Composable
+fun SettingsRow(
+    title: String,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    icon: ImageVector? = null,
+    trailing: @Composable (RowScope.() -> Unit)? = null,
+    onClick: (() -> Unit)? = null,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (icon != null) {
+            Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.width(14.dp))
         }
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleMedium)
@@ -196,13 +252,17 @@ fun GlassSettingsRow(
 
 @Composable
 fun GlassToggleRow(title: String, subtitle: String? = null, checked: Boolean, onChecked: (Boolean) -> Unit) {
-    GlassSettingsRow(title = title, subtitle = subtitle) {
-        Switch(
-            checked = checked,
-            onCheckedChange = onChecked,
-            colors = SwitchDefaults.colors(checkedTrackColor = MaterialTheme.colorScheme.primary),
-        )
-    }
+    GlassSettingsRow(
+        title = title,
+        subtitle = subtitle,
+        trailing = {
+            Switch(
+                checked = checked,
+                onCheckedChange = onChecked,
+                colors = SwitchDefaults.colors(checkedTrackColor = MaterialTheme.colorScheme.primary),
+            )
+        },
+    )
 }
 
 @Composable
@@ -241,19 +301,7 @@ fun SectionHeader(title: String, action: String? = null, onAction: (() -> Unit)?
 
 @Composable
 fun AetherBackground(modifier: Modifier = Modifier) {
-    val dark = MaterialTheme.colorScheme.background
-    Box(
-        modifier = modifier.background(
-            Brush.verticalGradient(
-                listOf(
-                    dark,
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
-                    Color(0xFF1A1030).copy(alpha = 0.35f),
-                    dark,
-                ),
-            ),
-        ),
-    )
+    Box(modifier = modifier.background(MaterialTheme.colorScheme.background))
 }
 
 @Composable

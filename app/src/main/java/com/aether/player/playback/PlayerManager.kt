@@ -456,7 +456,7 @@ class PlayerManager(
         }
         lastSubtitleUri = uri
         scope.launch {
-            val effective = withContext(Dispatchers.IO) { applySubtitleDelay(uri) }
+            val effective = withContext(Disuri) }
             val current = _state.value.current ?: return@launch
             val pos = player.currentPosition
             val play = player.playWhenReady
@@ -602,8 +602,8 @@ class PlayerManager(
     // ---------- frame capture ----------
 
     /**
-     * Captures the currently rendered frame. Primary path uses PixelCopy on the live
-     * player surface (exact on-screen frame, works for files and most streams); falls
+     * Captures the currently rendered frame. Primary path grabs the bitmap from the
+     * live player view (exact on-screen frame, works for files and most streams); falls
      * back to MediaMetadataRetriever. Never throws — failures return Unavailable.
      */
     suspend fun captureFrame(surfaceHost: View?): CaptureResult {

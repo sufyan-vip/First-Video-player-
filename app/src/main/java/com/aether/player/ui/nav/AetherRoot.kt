@@ -438,10 +438,3 @@ private fun TabPill(tab: Tab, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
-private fun tabOrder(route: String?): Int = when {
-    route == null -> -1
-    route.startsWith("home") -> 0
-    route.startsWith("videos") -> 1
-    route.startsWith("settings") -> 2
-    else -> -1
-}

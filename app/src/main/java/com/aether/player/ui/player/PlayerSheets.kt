@@ -472,9 +472,26 @@ fun AiSheet(
                 Spacer(Modifier.height(8.dp))
             }
             if (output.isNotBlank()) {
-                SelectionContainer {
-                    Text(output, style = MaterialTheme.typography.bodyLarge)
-                }
+                OutputBox(
+                    text = output,
+                    onCopy = {
+                        val cm = context.getSystemService(android.content.ClipboardManager::class.java)
+                        cm.setPrimaryClip(android.content.ClipData.newPlainText("Aether AI", output))
+                    },
+                    onSaveNote = {
+                        val video = pm.state.value.current
+                        if (video != null) {
+                            scope.launch {
+                                app.container.library.addBookmark(
+                                    video.id,
+                                    pm.player.currentPosition,
+                                    output.take(120),
+                                )
+                            }
+                        }
+                    },
+                    onClear = { output = "" },
+                )
             }
         }
     }
@@ -543,6 +560,7 @@ fun VideoInfoSheet(
     onDismiss: () -> Unit,
 ) {
     val app = LocalContext.current.applicationContext as AetherApp
+    val infoScope = rememberCoroutineScope()
     var meta by remember { mutableStateOf<StreamMeta?>(null) }
     LaunchedEffect(video.id, video.uri) {
         meta = app.container.mediaOps.probe(video.uri)
@@ -578,6 +596,23 @@ fun VideoInfoSheet(
             InfoRow("Audio tracks", state.audioTracks.joinToString { it.label }.ifBlank { "Embedded / unknown" })
             InfoRow("Subtitles", state.textTracks.joinToString { it.label }.ifBlank { "None detected" })
             InfoRow("Played", "${video.playCount} times")
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                GlassButton("Share") {
+                    runCatching {
+                        val share = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                            type = video.mimeType ?: "video/*"
+                            putExtra(android.content.Intent.EXTRA_STREAM, android.net.Uri.parse(video.uri))
+                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        app.startActivity(android.content.Intent.createChooser(share, "Share video"))
+                    }
+                }
+                GlassButton(if (video.isFavorite) "Unfavorite" else "Favorite") {
+                    infoScope.launch { app.container.library.toggleFavorite(video.id) }
+                }
+            }
         }
     }
 }
@@ -593,5 +628,28 @@ private fun InfoRow(label: String, value: String) {
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp).clickable { }) {
         Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         Text(value, style = MaterialTheme.typography.bodyLarge)
+    }
+}
+
+/** Dedicated card for AI answers, with copy / save-as-note / clear actions. */
+@Composable
+private fun OutputBox(
+    text: String,
+    onCopy: () -> Unit,
+    onSaveNote: () -> Unit,
+    onClear: () -> Unit,
+) {
+    com.aether.player.ui.components.GlassCard(modifier = Modifier.fillMaxWidth()) {
+        Text("AI output", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.height(8.dp))
+        SelectionContainer {
+            Text(text, style = MaterialTheme.typography.bodyLarge)
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            GlassButton("Copy", onClick = onCopy)
+            GlassButton("Save as note", onClick = onSaveNote)
+            GlassButton("Clear", onClick = onClear)
+        }
     }
 }

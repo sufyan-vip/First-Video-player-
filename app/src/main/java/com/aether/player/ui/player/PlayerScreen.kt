@@ -37,9 +37,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Pause
@@ -53,6 +56,7 @@ import androidx.compose.material.icons.outlined.AspectRatio
 import androidx.compose.material.icons.outlined.Audiotrack
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.ClosedCaption
+import androidx.compose.material.icons.outlined.Favorite
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Fullscreen
 import androidx.compose.material.icons.outlined.GraphicEq
@@ -60,10 +64,17 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.List
 import androidx.compose.material.icons.outlined.Loop
 import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.PlaylistAdd
 import androidx.compose.material.icons.outlined.PlaylistPlay
+import androidx.compose.material.icons.outlined.QueryStats
+import androidx.compose.material.icons.outlined.QueueMusic
 import androidx.compose.material.icons.outlined.Repeat
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Shuffle
+import androidx.compose.material.icons.outlined.SkipNext
+import androidx.compose.material.icons.outlined.SkipPrevious
 import androidx.compose.material.icons.outlined.SmartToy
+import androidx.compose.material.icons.outlined.Speaker
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.outlined.VolumeOff
@@ -90,6 +101,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -124,7 +136,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val SPEEDS = listOf(1f, 1.25f, 1.5f, 1.75f, 2f, 0.5f, 0.75f)
-private val SLEEPS = listOf(0, 10, 15, 30, 45, 60, -1)
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -154,11 +165,19 @@ fun PlayerScreen(
     var chaptersSheet by remember { mutableStateOf(false) }
     var bookmarksSheet by remember { mutableStateOf(false) }
     var aiSheet by remember { mutableStateOf(false) }
+    var speedSheet by remember { mutableStateOf(false) }
+    var sleepSheet by remember { mutableStateOf(false) }
+    var eqSheet by remember { mutableStateOf(false) }
+    var queueSheet by remember { mutableStateOf(false) }
+    var playlistSheet by remember { mutableStateOf(false) }
+    var statsOverlay by remember { mutableStateOf(false) }
     var resumeAsk by remember { mutableStateOf(false) }
     var showHints by remember { mutableStateOf(false) }
-    var sleepIdx by remember { mutableStateOf(0) }
-    var eqIdx by remember { mutableStateOf(0) }
+    var boostOn by remember { mutableStateOf(false) }
+    var favOn by remember(state.current?.id) { mutableStateOf(state.current?.isFavorite == true) }
     var brightness by remember { mutableFloatStateOf(activity?.window?.attributes?.screenBrightness?.takeIf { it >= 0 } ?: 0.5f) }
+    var volumeAcc by remember { mutableFloatStateOf(0f) }
+    var playerHost by remember { mutableStateOf<PlayerView?>(null) }
     val boostActive = remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -216,22 +235,6 @@ fun PlayerScreen(
         pm.setSpeed(next)
     }
 
-    fun cycleSleep() {
-        sleepIdx = (sleepIdx + 1) % SLEEPS.size
-        val minutes = SLEEPS[sleepIdx]
-        pm.startSleepTimer(minutes)
-        pm.flash("Sleep: ${TimeFormat.sleepLabel(minutes)}")
-    }
-
-    fun cycleEq() {
-        if (pm.equalizerInfo() == null) {
-            pm.flash("Equalizer unavailable")
-            return
-        }
-        eqIdx = (eqIdx + 1) % PlayerManager.EQ_PRESETS.size
-        pm.applyEqualizerPreset(PlayerManager.EQ_PRESETS[eqIdx])
-    }
-
     fun cycleAspect() {
         val modes = AspectMode.entries
         val next = modes[(modes.indexOf(state.aspect) + 1) % modes.size]
@@ -261,16 +264,59 @@ fun PlayerScreen(
 
     fun capture() {
         scope.launch {
-            when (val result = pm.captureFrame()) {
-                is CaptureResult.Saved -> pm.flash("Frame saved")
+            when (val result = pm.captureFrame(playerHost)) {
+                is CaptureResult.Saved -> pm.flash("Frame saved to Pictures/Aether")
                 is CaptureResult.Unavailable -> pm.flash(result.reason)
             }
         }
     }
 
+    fun shareCurrent() {
+        val video = state.current ?: return
+        runCatching {
+            val share = Intent(Intent.ACTION_SEND).apply {
+                type = video.mimeType ?: "video/*"
+                putExtra(Intent.EXTRA_STREAM, Uri.parse(video.uri))
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(share, "Share video"))
+        }
+    }
+
+    fun toggleFav() {
+        val video = state.current ?: return
+        favOn = !favOn
+        scope.launch { app.container.library.toggleFavorite(video.id) }
+        pm.flash(if (favOn) "Added to favorites" else "Removed from favorites")
+    }
+
+    fun toggleCc() {
+        val tracks = state.textTracks
+        if (tracks.none { it.selected }) {
+            val first = tracks.firstOrNull()
+            if (first != null) {
+                pm.selectTextTrack(first)
+                pm.flash("Subtitles on")
+            } else {
+                pm.flash("No subtitle tracks")
+            }
+        } else {
+            pm.selectTextTrack(null)
+            pm.flash("Subtitles off")
+        }
+    }
+
+    fun toggleBoost() {
+        val next = !pm.isVolumeBoosted()
+        pm.setVolumeBoost(next)
+        boostOn = next
+    }
+
     BackHandler {
         if (menuOpen) {
             menuOpen = false
+        } else if (statsOverlay) {
+            statsOverlay = false
         } else if (state.locked) {
             pm.setLocked(false)
         } else {
@@ -330,6 +376,7 @@ fun PlayerScreen(
                         totalX = 0f
                         totalY = 0f
                         minimized = false
+                        volumeAcc = 0f
                     },
                     onDragEnd = {
                         if (!minimized && settings.gestureSwipeDownMini &&
@@ -375,10 +422,15 @@ fun PlayerScreen(
                             }
                             absY >= absX && !GestureMath.isLeftSide(x, size.width.toFloat()) && settings.gestureVolume -> {
                                 val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                                val d = GestureMath.volumeDelta(drag.y, size.height.toFloat(), max, settings.volumeSensitivity)
-                                val next = (audio.getStreamVolume(AudioManager.STREAM_MUSIC) + d).coerceIn(0, max)
-                                audio.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0)
-                                val pct = if (max == 0) 0 else next * 100 / max
+                                volumeAcc += GestureMath.volumeDeltaF(drag.y, size.height.toFloat(), max, settings.volumeSensitivity)
+                                val steps = volumeAcc.toInt()
+                                if (steps != 0) {
+                                    volumeAcc -= steps.toFloat()
+                                    val next = (audio.getStreamVolume(AudioManager.STREAM_MUSIC) + steps).coerceIn(0, max)
+                                    audio.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0)
+                                }
+                                val cur = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+                                val pct = if (max == 0) 0 else cur * 100 / max
                                 pm.flash("Volume $pct%", pct / 100f)
                             }
                         }
@@ -418,6 +470,7 @@ fun PlayerScreen(
                             null,
                         ),
                     )
+                    playerHost = this
                 }
             },
             update = { view ->
@@ -631,7 +684,12 @@ fun PlayerScreen(
                             }
                         }
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { scope.launch { prefs.update { it.copy(showRemaining = !it.showRemaining) } } },
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
                         Text(
                             "${state.speed}x · ${TimeFormat.formatMs(pos)}",
                             color = Color.White,
@@ -708,26 +766,73 @@ fun PlayerScreen(
             }
         }
 
+        state.abLoop?.let { (a, b) ->
+            Box(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 68.dp),
+            ) {
+                GlassButton(
+                    if (b == Long.MAX_VALUE) "A ${TimeFormat.formatMs(a)}… (tap ✕ to clear)"
+                    else "A-B ${TimeFormat.formatMs(a)}–${TimeFormat.formatMs(b)} ✕",
+                    filled = true,
+                ) {
+                    pm.clearAbLoop()
+                    pm.flash("A-B cleared")
+                }
+            }
+        }
+
         if (menuOpen) {
-            MenuGrid(
-                shuffle = state.shuffle,
-                repeatMode = state.repeatMode,
-                onDismiss = { menuOpen = false },
-                onAi = { aiSheet = true; menuOpen = false },
-                onCapture = { capture(); menuOpen = false },
-                onSleep = { cycleSleep(); menuOpen = false },
-                onEq = { cycleEq(); menuOpen = false },
-                onAb = { cycleAb(); menuOpen = false },
-                onAspect = { cycleAspect(); menuOpen = false },
-                onShuffle = { pm.toggleShuffle(); menuOpen = false },
-                onRepeat = { cycleRepeat(); menuOpen = false },
-                onPip = { onPip(); menuOpen = false },
-                onSubtitleFile = {
+            val cells = listOf(
+                Triple(Icons.Outlined.SmartToy, "AI") { aiSheet = true; menuOpen = false },
+                Triple(Icons.Outlined.PhotoCamera, "Capture") { capture(); menuOpen = false },
+                Triple(Icons.Outlined.Timer, "Sleep") { sleepSheet = true; menuOpen = false },
+                Triple(Icons.Outlined.GraphicEq, "EQ") { eqSheet = true; menuOpen = false },
+                Triple(Icons.Outlined.Loop, "A-B") { cycleAb(); menuOpen = false },
+                Triple(Icons.Outlined.AspectRatio, "Aspect") { cycleAspect(); menuOpen = false },
+                Triple(
+                    Icons.Outlined.Shuffle,
+                    if (state.shuffle) "Shuffle on" else "Shuffle",
+                ) { pm.toggleShuffle(); menuOpen = false },
+                Triple(Icons.Outlined.Repeat, "Repeat ${state.repeatMode.name.lowercase()}") { cycleRepeat(); menuOpen = false },
+                Triple(Icons.Filled.PictureInPictureAlt, "PiP") { onPip(); menuOpen = false },
+                Triple(Icons.Outlined.FolderOpen, "Sub file") {
                     subtitlePicker.launch(arrayOf("text/*", "application/x-subrip", "*/*"))
                     menuOpen = false
                 },
-                onInfo = { infoSheet = true; menuOpen = false },
+                Triple(Icons.Outlined.Info, "Info") { infoSheet = true; menuOpen = false },
+                Triple(Icons.Outlined.QueueMusic, "Up next") { queueSheet = true; menuOpen = false },
+                Triple(
+                    if (favOn) Icons.Filled.Favorite else Icons.Outlined.Favorite,
+                    if (favOn) "Favorited" else "Favorite",
+                ) { toggleFav(); menuOpen = false },
+                Triple(Icons.Outlined.Share, "Share") { shareCurrent(); menuOpen = false },
+                Triple(Icons.Outlined.QueryStats, "Stats") { statsOverlay = true; menuOpen = false },
+                Triple(Icons.Outlined.Speaker, if (boostOn) "Boost on" else "Boost") { toggleBoost(); menuOpen = false },
+                Triple(Icons.Outlined.Speed, "Speed+") { speedSheet = true; menuOpen = false },
+                Triple(Icons.Outlined.SkipPrevious, "Frame −") { pm.frameStep(false); menuOpen = false },
+                Triple(Icons.Outlined.SkipNext, "Frame +") { pm.frameStep(true); menuOpen = false },
+                Triple(
+                    Icons.Outlined.ClosedCaption,
+                    if (state.textTracks.any { it.selected }) "CC on" else "CC off",
+                ) { toggleCc(); menuOpen = false },
+                Triple(Icons.Outlined.PlaylistAdd, "Playlist") { playlistSheet = true; menuOpen = false },
             )
+            MenuGrid(cells = cells, onDismiss = { menuOpen = false })
+        }
+
+        if (statsOverlay && state.current != null) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .clickable { statsOverlay = false },
+                contentAlignment = Alignment.Center,
+            ) {
+                StatsCard(state = state, onClose = { statsOverlay = false })
+            }
         }
 
         if (showHints) {
@@ -807,24 +912,27 @@ fun PlayerScreen(
     if (infoSheet && state.current != null) {
         VideoInfoSheet(video = state.current!!, state = state, onDismiss = { infoSheet = false })
     }
+    if (speedSheet) {
+        SpeedSheet(pm = pm, onDismiss = { speedSheet = false })
+    }
+    if (sleepSheet) {
+        SleepSheet(pm = pm, onDismiss = { sleepSheet = false })
+    }
+    if (eqSheet) {
+        EqSheet(pm = pm, onDismiss = { eqSheet = false })
+    }
+    if (queueSheet) {
+        QueueSheet(pm = pm, onDismiss = { queueSheet = false })
+    }
+    if (playlistSheet && state.current != null) {
+        PlaylistSheet(videoId = state.current!!.id, onDismiss = { playlistSheet = false })
+    }
 }
 
 @Composable
 private fun MenuGrid(
-    shuffle: Boolean,
-    repeatMode: RepeatMode,
+    cells: List<Triple<ImageVector, String, () -> Unit>>,
     onDismiss: () -> Unit,
-    onAi: () -> Unit,
-    onCapture: () -> Unit,
-    onSleep: () -> Unit,
-    onEq: () -> Unit,
-    onAb: () -> Unit,
-    onAspect: () -> Unit,
-    onShuffle: () -> Unit,
-    onRepeat: () -> Unit,
-    onPip: () -> Unit,
-    onSubtitleFile: () -> Unit,
-    onInfo: () -> Unit,
 ) {
     Box(
         Modifier
@@ -836,31 +944,14 @@ private fun MenuGrid(
         val card = RoundedCornerShape(28.dp)
         Column(
             Modifier
-                .padding(horizontal = 40.dp)
+                .padding(horizontal = 40.dp, vertical = 48.dp)
                 .clip(card)
                 .background(Color(0xFF1C1C22))
                 .border(1.dp, Color.White.copy(alpha = 0.12f), card)
-                .clickable(enabled = false, onClick = {})
-                .padding(20.dp),
+                .padding(20.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            val cells = listOf(
-                Triple(Icons.Outlined.SmartToy, "AI", onAi),
-                Triple(Icons.Outlined.PhotoCamera, "Capture", onCapture),
-                Triple(Icons.Outlined.Timer, "Sleep", onSleep),
-                Triple(Icons.Outlined.GraphicEq, "EQ", onEq),
-                Triple(Icons.Outlined.Loop, "A-B", onAb),
-                Triple(Icons.Outlined.AspectRatio, "Aspect", onAspect),
-                Triple(
-                    Icons.Outlined.Shuffle,
-                    if (shuffle) "Shuffle on" else "Shuffle",
-                    onShuffle,
-                ),
-                Triple(Icons.Outlined.Repeat, "Repeat ${repeatMode.name.lowercase()}", onRepeat),
-                Triple(Icons.Filled.PictureInPictureAlt, "PiP", onPip),
-                Triple(Icons.Outlined.FolderOpen, "Sub file", onSubtitleFile),
-                Triple(Icons.Outlined.Info, "Info", onInfo),
-            )
             cells.chunked(4).forEach { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     row.forEach { (icon, label, action) ->

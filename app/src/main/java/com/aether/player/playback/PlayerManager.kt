@@ -4,12 +4,19 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.PixelCopy
 import android.media.AudioManager
 import android.media.MediaMetadataRetriever
 import android.media.audiofx.Equalizer
+import android.media.audiofx.LoudnessEnhancer
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
+import android.view.SurfaceView
+import android.view.TextureView
+import android.view.View
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -82,17 +89,26 @@ class PlayerManager(
         attachListener()
         attachEqualizer()
         ensureTicker()
+        applyPerformanceMode(settingsCache.performanceMode)
         scope.launch {
             prefs.settings.collect { next ->
                 val prevLang = settingsCache.defaultAudioLang
+                val prevPerf = settingsCache.performanceMode
                 settingsCache = next
                 if (next.defaultAudioLang != prevLang) applyAudioPrefs()
+                if (next.performanceMode != prevPerf) applyPerformanceMode(next.performanceMode)
             }
         }
     }
 
     private fun buildEngine(s: AetherSettings): ExoPlayer {
         val b = bufferDurations(s.bufferProfile)
+        // Browser-like UA + redirect support so more hosts' online links play.
+        val httpFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
+            .setUserAgent("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36")
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(15_000)
+            .setReadTimeoutMs(30_000)
         return ExoPlayer.Builder(context)
             .setTrackSelector(trackSelector)
             .setAudioAttributes(
@@ -532,6 +548,20 @@ class PlayerManager(
             .build()
     }
 
+    /** Live-applies Settings → Performance by capping the picked video track. Never interrupts playback. */
+    fun applyPerformanceMode(mode: com.aether.player.data.prefs.PerformanceMode) {
+        val maxSize = when (mode) {
+            com.aether.player.data.prefs.PerformanceMode.HIGH_QUALITY -> Int.MAX_VALUE
+            com.aether.player.data.prefs.PerformanceMode.BALANCED -> 1920
+            com.aether.player.data.prefs.PerformanceMode.BATTERY_SAVER -> 1280
+        }
+        runCatching {
+            trackSelector.parameters = trackSelector.buildUponParameters()
+                .setMaxVideoSize(maxSize, maxSize)
+                .build()
+        }
+    }
+
     // ---------- equalizer (best-effort, device dependent) ----------
 
     fun equalizerInfo(): EqInfo? {
@@ -571,39 +601,108 @@ class PlayerManager(
 
     // ---------- frame capture ----------
 
-    suspend fun captureFrame(): CaptureResult = withContext(Dispatchers.IO) {
+    /**
+     * Captures the currently rendered frame. Primary path uses PixelCopy on the live
+     * player surface (exact on-screen frame, works for files and most streams); falls
+     * back to MediaMetadataRetriever. Never throws — failures return Unavailable.
+     */
+    suspend fun captureFrame(surfaceHost: View?): CaptureResult {
         if (Build.VERSION.SDK_INT < 29) {
-            return@withContext CaptureResult.Unavailable("Frame capture needs Android 10 or newer")
+            return CaptureResult.Unavailable("Frame capture needs Android 10 or newer")
         }
-        val video = state.value.current
-            ?: return@withContext CaptureResult.Unavailable("Nothing is playing")
-        val posUs = (if (player.currentPosition > 0) player.currentPosition else state.value.positionMs) * 1000L
-        val retriever = MediaMetadataRetriever()
-        try {
-            runCatching { retriever.setDataSource(context, Uri.parse(video.uri)) }
-                .onFailure { return@withContext CaptureResult.Unavailable("This stream does not allow frame capture") }
-            val frame = retriever.getFrameAtTime(posUs, MediaMetadataRetriever.OPTION_CLOSEST)
-                ?: retriever.getFrameAtTime(0)
-                ?: return@withContext CaptureResult.Unavailable("Could not decode a frame")
-            val name = "Aether_${System.currentTimeMillis()}.png"
-            val values = ContentValues().apply {
-                put(MediaStore.Images.Media.DISPLAY_NAME, name)
-                put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Aether")
+        val video = state.value.current ?: return CaptureResult.Unavailable("Nothing is playing")
+        val shot = runCatching { pixelCopyFrame(surfaceHost) }.getOrNull()
+        val bitmap = shot ?: runCatching {
+            withContext(Dispatchers.IO) { retrieverFrame(video.uri) }
+        }.getOrNull() ?: return CaptureResult.Unavailable("This video does not allow frame capture")
+        val scaled = runCatching { downscale(bitmap) }.getOrDefault(bitmap)
+        val saved = runCatching { saveImageToGallery(scaled) }.getOrNull()
+        runCatching { if (scaled !== bitmap) bitmap.recycle() }
+        runCatching { scaled.recycle() }
+        return if (saved != null) CaptureResult.Saved(saved)
+        else CaptureResult.Unavailable("Storage unavailable")
+    }
+
+    private suspend fun pixelCopyFrame(host: View?): Bitmap? {
+        if (host == null) return null
+        return withContext(Dispatchers.Main) {
+            val target = findSurfaceView(host)
+            if (target is TextureView) {
+                return@withContext runCatching { target.bitmap }.getOrNull()
             }
-            val collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-            val dest = context.contentResolver.insert(collection, values)
-                ?: return@withContext CaptureResult.Unavailable("Storage unavailable")
-            context.contentResolver.openOutputStream(dest)?.use { out ->
-                frame.compress(Bitmap.CompressFormat.PNG, 100, out)
-            } ?: return@withContext CaptureResult.Unavailable("Storage unavailable")
-            frame.recycle()
-            CaptureResult.Saved(dest)
-        } catch (t: Throwable) {
-            CaptureResult.Unavailable(t.message ?: "Capture failed")
+            val surface = (target as? SurfaceView)?.holder?.surface
+            if (surface == null || !surface.isValid) return@withContext null
+            val w = target.width
+            val h = target.height
+            if (w <= 0 || h <= 0) return@withContext null
+            val bmp = runCatching { Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888) }.getOrNull()
+                ?: return@withContext null
+            kotlinx.coroutines.suspendCancellableCoroutine<Bitmap?> { cont ->
+                runCatching {
+                    PixelCopy.request(
+                        surface,
+                        bmp,
+                        { result ->
+                            if (result == PixelCopy.SUCCESS) cont.resume(bmp) {}
+                            else {
+                                runCatching { bmp.recycle() }
+                                cont.resume(null) {}
+                            }
+                        },
+                        Handler(Looper.getMainLooper()),
+                    )
+                }.onFailure {
+                    runCatching { bmp.recycle() }
+                    cont.resume(null) {}
+                }
+            }
+        }
+    }
+
+    private fun findSurfaceView(host: View): View {
+        val inner = (host as? androidx.media3.ui.PlayerView)?.videoSurfaceView
+        return inner ?: host
+    }
+
+    private fun retrieverFrame(uri: String): Bitmap? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            runCatching { retriever.setDataSource(context, Uri.parse(uri)) }.getOrThrow()
+            val posUs = (if (player.currentPosition > 0) player.currentPosition else state.value.positionMs) * 1000L
+            retriever.getFrameAtTime(posUs, MediaMetadataRetriever.OPTION_CLOSEST)
+                ?: retriever.getFrameAtTime(0)
+        } catch (_: Throwable) {
+            null
         } finally {
             runCatching { retriever.release() }
         }
+    }
+
+    private fun downscale(src: Bitmap): Bitmap {
+        val maxW = 1920
+        if (src.width <= maxW) return src
+        val h = (src.height.toLong() * maxW / src.width.coerceAtLeast(1)).toInt().coerceAtLeast(1)
+        return runCatching { Bitmap.createScaledBitmap(src, maxW, h, true) }.getOrDefault(src)
+    }
+
+    private suspend fun saveImageToGallery(bitmap: Bitmap): Uri? = withContext(Dispatchers.IO) {
+        runCatching {
+            val name = "Aether_${System.currentTimeMillis()}.jpg"
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, name)
+                put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Aether")
+            }
+            val collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            val dest = context.contentResolver.insert(collection, values) ?: return@runCatching null
+            context.contentResolver.openOutputStream(dest)?.use { out ->
+                if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)) {
+                    runCatching { context.contentResolver.delete(dest, null, null) }
+                    return@runCatching null
+                }
+            } ?: return@runCatching null
+            dest
+        }.getOrNull()
     }
 
     fun retry() {
@@ -656,6 +755,41 @@ class PlayerManager(
                 hasNext = it.index < queue.lastIndex,
             )
         }
+    }
+
+    fun playQueueIndex(index: Int) {
+        val s = _state.value
+        if (index !in s.queue.indices) return
+        player.seekTo(index, 0L)
+        player.play()
+    }
+
+    fun removeFromQueue(index: Int) {
+        val s = _state.value
+        if (index !in s.queue.indices || s.queue.size <= 1) return
+        val queue = s.queue.toMutableList()
+        queue.removeAt(index)
+        runCatching { player.removeMediaItem(index) }
+        val now = player.currentMediaItemIndex.coerceIn(0, queue.lastIndex)
+        publish {
+            it.copy(
+                queue = queue,
+                index = now,
+                current = queue.getOrNull(now),
+                hasNext = now < queue.lastIndex,
+                hasPrevious = now > 0,
+            )
+        }
+    }
+
+    fun clearUpNext() {
+        val s = _state.value
+        val keep = s.queue.take(s.index + 1)
+        if (keep.size == s.queue.size) return
+        for (i in s.queue.lastIndex downTo s.index + 1) {
+            runCatching { player.removeMediaItem(i) }
+        }
+        publish { it.copy(queue = keep, hasNext = false) }
     }
 
     private fun ensureTicker() {
@@ -717,6 +851,60 @@ class PlayerManager(
         equalizer = null
         runCatching {
             equalizer = Equalizer(0, player.audioSessionId).apply { enabled = false }
+        }
+        if (boostOn) {
+            runCatching { booster?.release() }
+            booster = runCatching {
+                LoudnessEnhancer(player.audioSessionId).apply {
+                    enabled = true
+                    setTargetGain(900)
+                }
+            }.getOrNull()
+            if (booster == null) boostOn = false
+        }
+    }
+
+    // ---------- equalizer bands + volume boost ----------
+
+    /** Current band levels in millibels, or null when the device effect is unavailable. */
+    fun bandLevels(): List<Short>? {
+        val eq = equalizer ?: return null
+        return runCatching {
+            (0 until eq.numberOfBands.toInt()).map { eq.getBandLevel(it.toShort()) }
+        }.getOrNull()
+    }
+
+    fun setBandLevel(band: Int, level: Short) {
+        val eq = equalizer ?: return
+        runCatching {
+            eq.enabled = true
+            eq.setBandLevel(band.toShort(), level)
+        }
+    }
+
+    private var booster: LoudnessEnhancer? = null
+    private var boostOn: Boolean = false
+
+    fun isVolumeBoosted(): Boolean = boostOn && booster != null
+
+    fun setVolumeBoost(enabled: Boolean) {
+        runCatching { booster?.release() }
+        booster = null
+        boostOn = false
+        if (!enabled) {
+            flash("Boost off")
+            return
+        }
+        runCatching {
+            booster = LoudnessEnhancer(player.audioSessionId).apply {
+                enabled = true
+                setTargetGain(900)
+            }
+            boostOn = true
+            flash("Volume boost on")
+        }.onFailure {
+            booster = null
+            flash("Boost unavailable on this device")
         }
     }
 
@@ -782,8 +970,8 @@ class PlayerManager(
         }
     }
 
-    private fun VideoEntity.toMediaItem(): MediaItem =
-        MediaItem.Builder()
+    private fun VideoEntity.toMediaItem(): MediaItem {
+        val builder = MediaItem.Builder()
             .setUri(uri)
             .setMediaId(id)
             .setMediaMetadata(
@@ -792,7 +980,13 @@ class PlayerManager(
                     .setArtist(folderName)
                     .build(),
             )
-            .build()
+        // Explicit MIME helps adaptive streams whose type can't be sniffed from the URL.
+        when (com.aether.player.domain.UrlValidator.extensionOf(uri)) {
+            "m3u8" -> builder.setMimeType(MimeTypes.APPLICATION_M3U8)
+            "mpd" -> builder.setMimeType(MimeTypes.APPLICATION_MPD)
+        }
+        return builder.build()
+    }
 
     private inline fun publish(block: (PlayerUiState) -> PlayerUiState) {
         _state.value = block(_state.value)

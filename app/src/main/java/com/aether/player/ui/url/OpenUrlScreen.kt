@@ -1,6 +1,7 @@
 package com.aether.player.ui.url
 
 import android.widget.Toast
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -32,6 +33,12 @@ import com.aether.player.ui.components.GlassButton
 import com.aether.player.ui.components.GlassCard
 import com.aether.player.ui.library.LibraryViewModel
 
+private val SAMPLE_LINKS = listOf(
+    "Big Buck Bunny (MP4)" to "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+    "Tears of Steel (HLS)" to "https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8",
+    "Big Buck Bunny (DASH)" to "https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd",
+)
+
 @Composable
 fun OpenUrlScreen(
     vm: LibraryViewModel,
@@ -60,6 +67,11 @@ fun OpenUrlScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodyMedium,
         )
+        Text(
+            "YouTube / TikTok / Instagram watch pages are web pages, not video files — those can't play directly.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+        )
         Spacer(Modifier.height(12.dp))
         OutlinedTextField(
             value = url,
@@ -83,6 +95,16 @@ fun OpenUrlScreen(
             }
             Spacer(Modifier.padding(4.dp))
             GlassButton("Download") { vm.enqueueDownload(url, title) }
+        }
+        Spacer(Modifier.height(16.dp))
+        Text("Try a sample stream", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SAMPLE_LINKS.forEach { (label, link) ->
+                GlassButton(label.substringBefore(" (")) {
+                    vm.playUrl(link, label) { onPlay() }
+                }
+            }
         }
         Spacer(Modifier.height(24.dp))
         Text("Recent URLs", style = MaterialTheme.typography.titleLarge)

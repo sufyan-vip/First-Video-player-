@@ -26,6 +26,7 @@ class LibraryRepository(
     val scanError: StateFlow<String?> = _scanError
 
     fun videos(): Flow<List<VideoEntity>> = db.videos().observeAll()
+    fun hiddenVideos(): Flow<List<VideoEntity>> = db.videos().observeHidden()
     fun folders(): Flow<List<FolderEntity>> = db.folders().observeAll()
     fun favorites(): Flow<List<VideoEntity>> = db.videos().observeFavorites()
     fun recent(): Flow<List<VideoEntity>> = db.videos().observeRecent()
@@ -80,6 +81,10 @@ class LibraryRepository(
     }
 
     suspend fun setHidden(id: String, hidden: Boolean) = db.videos().setHidden(id, hidden)
+
+    suspend fun markWatched(id: String, watched: Boolean) {
+        db.videos().updateProgress(id, System.currentTimeMillis(), 0L, watched, 0)
+    }
 
     suspend fun recordPlayback(
         video: VideoEntity,

@@ -64,6 +64,13 @@ fun PlaylistDetailScreen(
                     onOpenVideo()
                 }
             }
+            GlassButton("Shuffle") {
+                val shuffled = videos.shuffled()
+                shuffled.firstOrNull()?.let {
+                    vm.play(it, shuffled)
+                    onOpenVideo()
+                }
+            }
             GlassButton("Rename") {
                 renameText = playlist?.name.orEmpty()
                 renaming = true

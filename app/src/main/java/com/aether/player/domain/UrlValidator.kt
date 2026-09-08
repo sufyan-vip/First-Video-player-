@@ -31,6 +31,18 @@ object UrlValidator {
         }
     }
 
+    private val webPageHosts = listOf(
+        "youtube.com", "youtu.be", "vimeo.com", "dailymotion",
+        "facebook.com", "fb.watch", "instagram.com", "tiktok.com",
+        "twitch.tv", "twitter.com", "x.com",
+    )
+
+    /** True for watch/share pages that are not directly playable media. */
+    fun isWebPage(input: String): Boolean {
+        val lower = normalize(input).lowercase(Locale.US)
+        return webPageHosts.any { lower.contains(it) }
+    }
+
     fun looksLikeStream(input: String): Boolean {
         val lower = normalize(input).lowercase(Locale.US)
         return lower.contains(".m3u8") || lower.contains(".mpd") || lower.contains("rtsp://")

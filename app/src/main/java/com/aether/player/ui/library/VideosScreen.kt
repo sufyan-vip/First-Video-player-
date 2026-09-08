@@ -24,11 +24,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.ViewList
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -46,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import com.aether.player.data.db.VideoEntity
 import com.aether.player.data.prefs.SortMode
 import com.aether.player.data.prefs.ViewMode
+import com.aether.player.domain.TimeFormat
 import com.aether.player.ui.components.GlassChip
 import com.aether.player.ui.components.GlassIconButton
 import com.aether.player.ui.components.VideoGridCard
@@ -65,6 +68,9 @@ fun VideosScreen(
     var renaming by remember { mutableStateOf<VideoEntity?>(null) }
     var renameText by remember { mutableStateOf("") }
     var deleting by remember { mutableStateOf<VideoEntity?>(null) }
+    var detailsOf by remember { mutableStateOf<VideoEntity?>(null) }
+    var playlistTarget by remember { mutableStateOf<VideoEntity?>(null) }
+    var newPlaylistName by remember { mutableStateOf("") }
     var treeTarget by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
 
     val notice by vm.notice.collectAsState()
@@ -105,6 +111,7 @@ fun VideosScreen(
                     Text("${ui.videos.size} items", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    GlassIconButton(Icons.Outlined.Refresh, "Rescan library", onClick = { vm.scan() })
                     GlassIconButton(Icons.Outlined.Search, "Search", onClick = onOpenSearch)
                     GlassIconButton(
                         if (ui.viewMode == ViewMode.LIST) Icons.Outlined.GridView else Icons.Outlined.ViewList,
@@ -115,6 +122,17 @@ fun VideosScreen(
                     )
                 }
             }
+            if (ui.scanning) {
+                LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+            }
+            ui.scanError?.let {
+                Text(
+                    it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
             Row(
                 Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -123,6 +141,19 @@ fun VideosScreen(
                     GlassChip(f.name.lowercase().replaceFirstChar { it.titlecase() }, ui.filter == f) { vm.setFilter(f) }
                 }
                 GlassChip("Sort", false) { sortMenu = true }
+                GlassChip("Play all", false) {
+                    ui.videos.firstOrNull()?.let {
+                        vm.play(it, ui.videos)
+                        onOpenVideo()
+                    }
+                }
+                GlassChip("Shuffle", false) {
+                    val shuffled = ui.videos.shuffled()
+                    shuffled.firstOrNull()?.let {
+                        vm.play(it, shuffled)
+                        onOpenVideo()
+                    }
+                }
             }
             Row(
                 Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
@@ -186,7 +217,10 @@ fun VideosScreen(
             }
             DropdownMenu(expanded = actionId != null, onDismissRequest = { actionId = null }) {
                 val video = ui.videos.find { it.id == actionId }
-                DropdownMenuItem(text = { Text("Favorite") }, onClick = { video?.let { vm.toggleFavorite(it.id) }; actionId = null })
+                DropdownMenuItem(
+                    text = { Text(if (video?.isFavorite == true) "Unfavorite" else "Favorite") },
+                    onClick = { video?.let { vm.toggleFavorite(it.id) }; actionId = null },
+                )
                 DropdownMenuItem(text = { Text("Play next") }, onClick = {
                     video?.let { vm.playNext(it) }
                     actionId = null
@@ -195,6 +229,18 @@ fun VideosScreen(
                     video?.let { vm.addToQueue(it) }
                     actionId = null
                 })
+                DropdownMenuItem(text = { Text("Add to playlist…") }, onClick = {
+                    playlistTarget = video
+                    newPlaylistName = ""
+                    actionId = null
+                })
+                DropdownMenuItem(
+                    text = { Text(if (video?.completed == true) "Mark unwatched" else "Mark watched") },
+                    onClick = {
+                        video?.let { vm.markWatched(it.id, !(it.completed)) }
+                        actionId = null
+                    },
+                )
                 DropdownMenuItem(text = { Text("Share") }, onClick = {
                     video?.let { runCatching { context.startActivity(Intent.createChooser(vm.share(it), "Share video")) } }
                     actionId = null
@@ -209,6 +255,10 @@ fun VideosScreen(
                         actionId = null
                     })
                 }
+                DropdownMenuItem(text = { Text("Details") }, onClick = {
+                    detailsOf = video
+                    actionId = null
+                })
                 DropdownMenuItem(text = { Text("Rename") }, onClick = {
                     renaming = video
                     renameText = video?.title.orEmpty()
@@ -224,7 +274,13 @@ fun VideosScreen(
                     actionId = null
                     if (video != null) treePicker.launch(null)
                 })
-                DropdownMenuItem(text = { Text("Hide") }, onClick = { video?.let { vm.hide(it.id) }; actionId = null })
+                DropdownMenuItem(
+                    text = { Text(if (video?.isHidden == true) "Unhide" else "Hide") },
+                    onClick = {
+                        video?.let { if (it.isHidden) vm.unhide(it.id) else vm.hide(it.id) }
+                        actionId = null
+                    },
+                )
                 DropdownMenuItem(
                     text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
                     onClick = {
@@ -264,6 +320,59 @@ fun VideosScreen(
                 }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+        )
+    }
+    detailsOf?.let { target ->
+        AlertDialog(
+            onDismissRequest = { detailsOf = null },
+            title = { Text("Details") },
+            text = {
+                Text(
+                    "Name: ${target.title}\n" +
+                        "Folder: ${target.folderName ?: "—"}\n" +
+                        "Size: ${TimeFormat.prettyBytes(target.sizeBytes)}\n" +
+                        "Duration: ${TimeFormat.formatMs(target.durationMs)}\n" +
+                        "Resolution: ${TimeFormat.prettyResolution(target.width, target.height)}\n" +
+                        "Played: ${target.playCount} times\n" +
+                        "Location: ${target.path ?: target.uri}",
+                )
+            },
+            confirmButton = { TextButton(onClick = { detailsOf = null }) { Text("Close") } },
+        )
+    }
+    playlistTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { playlistTarget = null },
+            title = { Text("Add to playlist") },
+            text = {
+                Column {
+                    if (ui.playlists.isEmpty()) {
+                        Text("No playlists yet — create one below.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    ui.playlists.forEach { pl ->
+                        TextButton(onClick = {
+                            vm.addToPlaylist(pl.id, target.id)
+                            playlistTarget = null
+                        }) { Text(pl.name, maxLines = 1) }
+                    }
+                    OutlinedTextField(
+                        value = newPlaylistName,
+                        onValueChange = { newPlaylistName = it },
+                        singleLine = true,
+                        placeholder = { Text("New playlist name") },
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = newPlaylistName.isNotBlank(),
+                    onClick = {
+                        vm.createPlaylist(newPlaylistName.trim(), target.id)
+                        playlistTarget = null
+                    },
+                ) { Text("Create & add") }
+            },
+            dismissButton = { TextButton(onClick = { playlistTarget = null }) { Text("Cancel") } },
         )
     }
 }

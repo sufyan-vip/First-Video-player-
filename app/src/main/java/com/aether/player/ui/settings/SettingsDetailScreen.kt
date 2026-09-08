@@ -1,6 +1,8 @@
 package com.aether.player.ui.settings
 
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -76,7 +78,9 @@ import com.aether.player.ui.components.GlassSliderRow
 import com.aether.player.ui.components.SettingsGroup
 import com.aether.player.ui.components.SettingsRow
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 private val CATEGORY_TITLES = mapOf(
     "appearance" to "Appearance",
@@ -118,6 +122,51 @@ fun SettingsDetailScreen(
     LaunchedEffect(category) { refreshCache() }
     var apiKey by remember { mutableStateOf(app.container.secure.get(SecureStore.AI_API_KEY)) }
     var aiTest by remember { mutableStateOf<String?>(null) }
+    var backupMessage by remember { mutableStateOf<String?>(null) }
+    val exportSettingsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            backupMessage = runCatching {
+                val json = settingsToJson(prefs.settings.first())
+                app.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
+                    ?: throw IllegalStateException("Could not open file")
+                "Settings exported."
+            }.getOrElse { "Export failed: ${it.message}" }
+        }
+    }
+    val importSettingsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            backupMessage = runCatching {
+                val text = app.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+                    ?: throw IllegalStateException("Could not read file")
+                applySettingsJson(prefs, JSONObject(text))
+                "Settings imported."
+            }.getOrElse { "Import failed: ${it.message}" }
+        }
+    }
+    val exportLibraryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            backupMessage = runCatching {
+                val json = libraryToJson(app)
+                app.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
+                    ?: throw IllegalStateException("Could not open file")
+                "Library exported."
+            }.getOrElse { "Export failed: ${it.message}" }
+        }
+    }
+    val importLibraryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            backupMessage = runCatching {
+                val text = app.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+                    ?: throw IllegalStateException("Could not read file")
+                val imported = applyLibraryJson(app, JSONObject(text))
+                "Library import done: $imported items."
+            }.getOrElse { "Import failed: ${it.message}" }
+        }
+    }
 
     Column(
         Modifier
@@ -361,28 +410,48 @@ fun SettingsDetailScreen(
                 }
             }
 
-            "storage" -> SettingsGroup("Storage") {
-                SettingsRow(
-                    title = "Cache",
-                    subtitle = cacheSize ?: "…",
-                    icon = Icons.Outlined.Storage,
-                )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                ) {
-                    GlassButton("Clear thumbnails") {
-                        scope.launch(Dispatchers.IO) {
-                            runCatching { Coil.imageLoader(app).diskCache?.clear() }
-                            refreshCache()
+            "storage" -> Column {
+                SettingsGroup("Storage") {
+                    SettingsRow(
+                        title = "Cache",
+                        subtitle = cacheSize ?: "…",
+                        icon = Icons.Outlined.Storage,
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        GlassButton("Clear thumbnails") {
+                            scope.launch(Dispatchers.IO) {
+                                runCatching { Coil.imageLoader(app).diskCache?.clear() }
+                                refreshCache()
+                            }
+                        }
+                        GlassButton("Clear cache") {
+                            scope.launch(Dispatchers.IO) {
+                                runCatching { app.cacheDir.listFiles()?.forEach { it.deleteRecursively() } }
+                                refreshCache()
+                            }
                         }
                     }
-                    GlassButton("Clear cache") {
-                        scope.launch(Dispatchers.IO) {
-                            runCatching { app.cacheDir.listFiles()?.forEach { it.deleteRecursively() } }
-                            refreshCache()
-                        }
+                }
+                SettingsGroup("Backup") {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        GlassButton("Export settings") { exportSettingsLauncher.launch("aether-settings.json") }
+                        GlassButton("Import settings") { importSettingsLauncher.launch(arrayOf("application/json")) }
                     }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        GlassButton("Export library") { exportLibraryLauncher.launch("aether-library.json") }
+                        GlassButton("Import library") { importLibraryLauncher.launch(arrayOf("application/json")) }
+                    }
+                    backupMessage?.let { NoteText(it) }
+                    NoteText("Settings backup includes every option on these pages. Library backup keeps stream links, saved URLs and playlists.")
                 }
             }
 
@@ -581,3 +650,191 @@ private fun NoteText(text: String) {
 private fun dirSize(dir: java.io.File): Long = runCatching {
     dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
 }.getOrDefault(0L)
+
+private fun settingsToJson(s: AetherSettings): String = JSONObject()
+    .put("themeMode", s.themeMode.name)
+    .put("accent", s.accent.name)
+    .put("dynamicColor", s.dynamicColor)
+    .put("glassIntensity", s.glassIntensity.toDouble())
+    .put("blurIntensity", s.blurIntensity.toDouble())
+    .put("animationScale", s.animationScale.toDouble())
+    .put("compactMode", s.compactMode)
+    .put("highContrast", s.highContrast)
+    .put("reduceMotion", s.reduceMotion)
+    .put("defaultSpeed", s.defaultSpeed.toDouble())
+    .put("autoPlayNext", s.autoPlayNext)
+    .put("resumePlayback", s.resumePlayback)
+    .put("seekIntervalSec", s.seekIntervalSec)
+    .put("doubleTapIntervalSec", s.doubleTapIntervalSec)
+    .put("backgroundPlayback", s.backgroundPlayback)
+    .put("keepScreenAwake", s.keepScreenAwake)
+    .put("gestureSeek", s.gestureSeek)
+    .put("gestureBrightness", s.gestureBrightness)
+    .put("gestureVolume", s.gestureVolume)
+    .put("gesturePinch", s.gesturePinch)
+    .put("gestureLongPressSpeed", s.gestureLongPressSpeed)
+    .put("gestureDoubleTap", s.gestureDoubleTap)
+    .put("gestureSwipeDownMini", s.gestureSwipeDownMini)
+    .put("seekSensitivity", s.seekSensitivity.toDouble())
+    .put("brightnessSensitivity", s.brightnessSensitivity.toDouble())
+    .put("volumeSensitivity", s.volumeSensitivity.toDouble())
+    .put("longPressSpeed", s.longPressSpeed.toDouble())
+    .put("defaultAspect", s.defaultAspect.name)
+    .put("controlsTimeoutMs", s.controlsTimeoutMs)
+    .put("timelineStyle", s.timelineStyle.name)
+    .put("showRemaining", s.showRemaining)
+    .put("haptics", s.haptics)
+    .put("subtitleSize", s.subtitleSize.toDouble())
+    .put("subtitlePosition", s.subtitlePosition.toDouble())
+    .put("subtitleDelayMs", s.subtitleDelayMs)
+    .put("defaultAudioLang", s.defaultAudioLang)
+    .put("historyEnabled", s.historyEnabled)
+    .put("incognito", s.incognito)
+    .put("sortMode", s.sortMode.name)
+    .put("viewMode", s.viewMode.name)
+    .put("gridSize", s.gridSize)
+    .put("completionThreshold", s.completionThreshold.toDouble())
+    .put("performanceMode", s.performanceMode.name)
+    .put("autoPip", s.autoPip)
+    .put("rememberOrientation", s.rememberOrientation)
+    .put("orientation", s.orientation)
+    .put("aiEnabled", s.aiEnabled)
+    .put("aiProvider", s.aiProvider.name)
+    .put("aiEndpoint", s.aiEndpoint)
+    .put("aiModel", s.aiModel)
+    .put("bufferProfile", s.bufferProfile.name)
+    .put("maxRetries", s.maxRetries)
+    .put("excludedFolders", s.excludedFolders)
+    .put("hideHiddenFiles", s.hideHiddenFiles)
+    .toString(2)
+
+private inline fun <reified T : Enum<T>> String.toEnumOr(fallback: T): T =
+    runCatching { java.lang.Enum.valueOf(T::class.java, this) }.getOrDefault(fallback)
+
+private suspend fun applySettingsJson(
+    prefs: com.aether.player.data.prefs.UserPreferences,
+    obj: JSONObject,
+) {
+    prefs.update { s ->
+        s.copy(
+            themeMode = obj.optString("themeMode", s.themeMode.name).toEnumOr(s.themeMode),
+            accent = obj.optString("accent", s.accent.name).toEnumOr(s.accent),
+            dynamicColor = obj.optBoolean("dynamicColor", s.dynamicColor),
+            glassIntensity = obj.optDouble("glassIntensity", s.glassIntensity.toDouble()).toFloat(),
+            blurIntensity = obj.optDouble("blurIntensity", s.blurIntensity.toDouble()).toFloat(),
+            animationScale = obj.optDouble("animationScale", s.animationScale.toDouble()).toFloat(),
+            compactMode = obj.optBoolean("compactMode", s.compactMode),
+            highContrast = obj.optBoolean("highContrast", s.highContrast),
+            reduceMotion = obj.optBoolean("reduceMotion", s.reduceMotion),
+            defaultSpeed = obj.optDouble("defaultSpeed", s.defaultSpeed.toDouble()).toFloat(),
+            autoPlayNext = obj.optBoolean("autoPlayNext", s.autoPlayNext),
+            resumePlayback = obj.optBoolean("resumePlayback", s.resumePlayback),
+            seekIntervalSec = obj.optInt("seekIntervalSec", s.seekIntervalSec),
+            doubleTapIntervalSec = obj.optInt("doubleTapIntervalSec", s.doubleTapIntervalSec),
+            backgroundPlayback = obj.optBoolean("backgroundPlayback", s.backgroundPlayback),
+            keepScreenAwake = obj.optBoolean("keepScreenAwake", s.keepScreenAwake),
+            gestureSeek = obj.optBoolean("gestureSeek", s.gestureSeek),
+            gestureBrightness = obj.optBoolean("gestureBrightness", s.gestureBrightness),
+            gestureVolume = obj.optBoolean("gestureVolume", s.gestureVolume),
+            gesturePinch = obj.optBoolean("gesturePinch", s.gesturePinch),
+            gestureLongPressSpeed = obj.optBoolean("gestureLongPressSpeed", s.gestureLongPressSpeed),
+            gestureDoubleTap = obj.optBoolean("gestureDoubleTap", s.gestureDoubleTap),
+            gestureSwipeDownMini = obj.optBoolean("gestureSwipeDownMini", s.gestureSwipeDownMini),
+            seekSensitivity = obj.optDouble("seekSensitivity", s.seekSensitivity.toDouble()).toFloat(),
+            brightnessSensitivity = obj.optDouble("brightnessSensitivity", s.brightnessSensitivity.toDouble()).toFloat(),
+            volumeSensitivity = obj.optDouble("volumeSensitivity", s.volumeSensitivity.toDouble()).toFloat(),
+            longPressSpeed = obj.optDouble("longPressSpeed", s.longPressSpeed.toDouble()).toFloat(),
+            defaultAspect = obj.optString("defaultAspect", s.defaultAspect.name).toEnumOr(s.defaultAspect),
+            controlsTimeoutMs = obj.optInt("controlsTimeoutMs", s.controlsTimeoutMs),
+            timelineStyle = obj.optString("timelineStyle", s.timelineStyle.name).toEnumOr(s.timelineStyle),
+            showRemaining = obj.optBoolean("showRemaining", s.showRemaining),
+            haptics = obj.optBoolean("haptics", s.haptics),
+            subtitleSize = obj.optDouble("subtitleSize", s.subtitleSize.toDouble()).toFloat(),
+            subtitlePosition = obj.optDouble("subtitlePosition", s.subtitlePosition.toDouble()).toFloat(),
+            subtitleDelayMs = obj.optInt("subtitleDelayMs", s.subtitleDelayMs),
+            defaultAudioLang = obj.optString("defaultAudioLang", s.defaultAudioLang),
+            historyEnabled = obj.optBoolean("historyEnabled", s.historyEnabled),
+            incognito = obj.optBoolean("incognito", s.incognito),
+            sortMode = obj.optString("sortMode", s.sortMode.name).toEnumOr(s.sortMode),
+            viewMode = obj.optString("viewMode", s.viewMode.name).toEnumOr(s.viewMode),
+            gridSize = obj.optInt("gridSize", s.gridSize),
+            completionThreshold = obj.optDouble("completionThreshold", s.completionThreshold.toDouble()).toFloat(),
+            performanceMode = obj.optString("performanceMode", s.performanceMode.name).toEnumOr(s.performanceMode),
+            autoPip = obj.optBoolean("autoPip", s.autoPip),
+            rememberOrientation = obj.optBoolean("rememberOrientation", s.rememberOrientation),
+            orientation = obj.optString("orientation", s.orientation),
+            aiEnabled = obj.optBoolean("aiEnabled", s.aiEnabled),
+            aiProvider = obj.optString("aiProvider", s.aiProvider.name).toEnumOr(s.aiProvider),
+            aiEndpoint = obj.optString("aiEndpoint", s.aiEndpoint),
+            aiModel = obj.optString("aiModel", s.aiModel),
+            bufferProfile = obj.optString("bufferProfile", s.bufferProfile.name).toEnumOr(s.bufferProfile),
+            maxRetries = obj.optInt("maxRetries", s.maxRetries),
+            excludedFolders = obj.optString("excludedFolders", s.excludedFolders),
+            hideHiddenFiles = obj.optBoolean("hideHiddenFiles", s.hideHiddenFiles),
+        )
+    }
+}
+
+private suspend fun libraryToJson(app: AetherApp): String {
+    val lib = app.container.library
+    val streams = org.json.JSONArray()
+    lib.videos().first().filter { it.uri.startsWith("http") }.forEach { v ->
+        streams.put(JSONObject().put("url", v.uri).put("title", v.title))
+    }
+    val urls = org.json.JSONArray()
+    lib.savedUrls().first().forEach { u ->
+        urls.put(JSONObject().put("url", u.url).put("title", u.title))
+    }
+    val lists = org.json.JSONArray()
+    lib.playlists().first().forEach { pl ->
+        val ids = org.json.JSONArray()
+        lib.playlistItems(pl.id).first().forEach { ids.put(it.videoId) }
+        lists.put(JSONObject().put("name", pl.name).put("videoIds", ids))
+    }
+    return JSONObject().put("streams", streams).put("urls", urls).put("playlists", lists).toString(2)
+}
+
+private suspend fun applyLibraryJson(app: AetherApp, obj: JSONObject): Int {
+    val lib = app.container.library
+    var count = 0
+    val streams = obj.optJSONArray("streams") ?: org.json.JSONArray()
+    for (i in 0 until streams.length()) {
+        val o = streams.optJSONObject(i) ?: continue
+        val url = o.optString("url")
+        if (url.isNotBlank()) {
+            runCatching {
+                lib.upsertNetworkVideo(url, o.optString("title", url))
+                count++
+            }
+        }
+    }
+    val urls = obj.optJSONArray("urls") ?: org.json.JSONArray()
+    for (i in 0 until urls.length()) {
+        val o = urls.optJSONObject(i) ?: continue
+        val url = o.optString("url")
+        if (url.isNotBlank()) {
+            runCatching {
+                lib.saveUrl(url, o.optString("title", url))
+                count++
+            }
+        }
+    }
+    val lists = obj.optJSONArray("playlists") ?: org.json.JSONArray()
+    for (i in 0 until lists.length()) {
+        val o = lists.optJSONObject(i) ?: continue
+        val name = o.optString("name")
+        if (name.isBlank()) continue
+        runCatching {
+            val pid = lib.createPlaylist(name)
+            val ids = o.optJSONArray("videoIds") ?: org.json.JSONArray()
+            for (j in 0 until ids.length()) {
+                val vid = ids.optString(j)
+                if (vid.isNotBlank() && lib.getVideo(vid) != null) {
+                    lib.addToPlaylist(pid, vid)
+                }
+            }
+            count++
+        }
+    }
+    return count
+}

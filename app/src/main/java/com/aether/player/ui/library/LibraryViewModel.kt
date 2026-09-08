@@ -30,7 +30,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-enum class LibraryFilter { ALL, FAVORITE, UNWATCHED, PARTIAL, RECENT }
+enum class LibraryFilter { ALL, FAVORITE, UNWATCHED, PARTIAL, RECENT, HIDDEN }
 enum class ResFilter { ALL, HD, FULL_HD, UHD }
 
 sealed interface PendingOp {
@@ -88,8 +88,10 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
 
     val ui: StateFlow<LibraryUi> = combine(
         combine(
-            query.flatMapLatest { q ->
-                if (q.isBlank()) library.videos() else library.search(q.trim())
+            combine(query, filter) { q, f -> q to f }.flatMapLatest { (q, f) ->
+                if (f == LibraryFilter.HIDDEN && q.isBlank()) library.hiddenVideos()
+                else if (q.isBlank()) library.videos()
+                else library.search(q.trim())
             },
             library.folders(),
             library.continueWatching(),
@@ -212,6 +214,10 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             notify("That doesn't look like a playable URL")
             return
         }
+        if (UrlValidator.isWebPage(normalized)) {
+            notify("That looks like a web page — paste a direct .mp4 / .m3u8 / .mpd link instead")
+            return
+        }
         viewModelScope.launch {
             val video = library.upsertNetworkVideo(normalized, title.ifBlank { normalized })
             library.saveUrl(normalized, video.title)
@@ -248,6 +254,14 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     fun toggleFavorite(id: String) = viewModelScope.launch { library.toggleFavorite(id) }
 
     fun hide(id: String) = viewModelScope.launch { library.setHidden(id, true) }
+
+    fun unhide(id: String) = viewModelScope.launch { library.setHidden(id, false) }
+
+    fun markWatched(id: String, watched: Boolean) =
+        viewModelScope.launch {
+            library.markWatched(id, watched)
+            notify(if (watched) "Marked watched" else "Marked unwatched")
+        }
 
     fun renameVideo(id: String, name: String) {
         viewModelScope.launch {
@@ -454,6 +468,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         LibraryFilter.UNWATCHED -> list.filter { it.lastPlayedAt == 0L }
         LibraryFilter.PARTIAL -> list.filter { it.lastPositionMs > 4_000L && !it.completed }
         LibraryFilter.RECENT -> list.sortedByDescending { it.lastPlayedAt }.take(60)
+        LibraryFilter.HIDDEN -> list
     }
 
     private fun applyResFilter(list: List<VideoEntity>, res: ResFilter): List<VideoEntity> = when (res) {

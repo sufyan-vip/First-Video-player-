@@ -31,12 +31,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.aether.player.AetherApp
 import com.aether.player.data.db.VideoEntity
+import com.aether.player.domain.TimeFormat
 import com.aether.player.ui.components.ContinueCard
 import com.aether.player.ui.components.FolderCard
 import com.aether.player.ui.components.GlassButton
@@ -125,6 +127,18 @@ fun HomeScreen(
         ui.scanError?.let {
             Spacer(Modifier.height(8.dp))
             Text(it, color = MaterialTheme.colorScheme.error)
+        }
+        if (ui.videos.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            val totalBytes = remember(ui.videos) { ui.videos.sumOf { it.sizeBytes } }
+            val totalMs = remember(ui.videos) { ui.videos.sumOf { it.durationMs } }
+            GlassCard(modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    StatMini("${ui.videos.size}", "videos")
+                    StatMini(TimeFormat.prettyBytes(totalBytes), "storage")
+                    StatMini(TimeFormat.formatMs(totalMs), "runtime")
+                }
+            }
         }
         if (ui.continueWatching.isNotEmpty()) {
             Spacer(Modifier.height(20.dp))
@@ -230,5 +244,13 @@ fun HomeScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+@Composable
+private fun StatMini(value: String, label: String) {
+    Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+        Text(value, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

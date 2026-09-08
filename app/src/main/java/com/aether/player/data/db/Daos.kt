@@ -13,6 +13,9 @@ interface VideoDao {
     @Query("SELECT * FROM videos WHERE isHidden = 0 ORDER BY dateAdded DESC")
     fun observeAll(): Flow<List<VideoEntity>>
 
+    @Query("SELECT * FROM videos WHERE isHidden = 1 ORDER BY dateAdded DESC")
+    fun observeHidden(): Flow<List<VideoEntity>>
+
     @Query("SELECT * FROM videos WHERE isHidden = 0")
     suspend fun getAll(): List<VideoEntity>
 

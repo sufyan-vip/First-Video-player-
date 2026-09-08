@@ -3,6 +3,7 @@ package com.aether.player.ui.theme
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -126,6 +127,10 @@ fun AetherTheme(
         labelLarge = TextStyle(fontWeight = FontWeight.Medium, fontSize = 14.sp, letterSpacing = 0.2.sp),
     )
     CompositionLocalProvider(LocalGlass provides glass, LocalAnimScale provides animScale) {
-        MaterialTheme(colorScheme = scheme, typography = typography, content = content)
+        MaterialTheme(colorScheme = scheme, typography = typography) {
+            // Root Surface provides LocalContentColor, so default text stays readable
+            // in both dark and light themes (fixes black-on-dark settings text).
+            Surface(color = scheme.background, contentColor = scheme.onSurface, content = content)
+        }
     }
 }

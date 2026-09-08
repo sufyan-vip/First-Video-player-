@@ -7,18 +7,10 @@ import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideIntoContainer
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -58,7 +50,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -204,17 +195,38 @@ fun AetherRoot(
                             ) {
                                 val current = tabs.find { route.startsWith(it.route) }?.route ?: "home"
                                 tabs.forEach { tab ->
-                                    TabPill(
-                                        tab = tab,
-                                        selected = current == tab.route,
-                                        onClick = {
-                                            nav.navigate(tab.route) {
-                                                popUpTo(nav.graph.findStartDestination().id) { saveState = true }
-                                                launchSingleTop = true
-                                                restoreState = true
+                                    val selected = current == tab.route
+                                    val itemShape = RoundedCornerShape(24.dp)
+                                    Row(
+                                        modifier = Modifier
+                                            .clip(itemShape)
+                                            .background(
+                                                if (selected) MaterialTheme.colorScheme.primary
+                                                else Color.Transparent,
+                                            )
+                                            .clickable {
+                                                nav.navigate(tab.route) {
+                                                    popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+                                                    launchSingleTop = true
+                                                    restoreState = true
+                                                }
                                             }
-                                        },
-                                    )
+                                            .padding(horizontal = 18.dp, vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Icon(
+                                            if (selected) tab.selected else tab.icon,
+                                            contentDescription = tab.label,
+                                            tint = if (selected) MaterialTheme.colorScheme.onPrimary else Color.White,
+                                            modifier = Modifier.size(22.dp),
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            tab.label,
+                                            color = if (selected) MaterialTheme.colorScheme.onPrimary else Color.White,
+                                            style = MaterialTheme.typography.labelLarge,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -222,42 +234,7 @@ fun AetherRoot(
                 },
             ) { padding ->
                 Box(Modifier.fillMaxSize().padding(padding)) {
-                    NavHost(
-                        navController = nav,
-                        startDestination = "home",
-                        enterTransition = {
-                            val from = tabOrder(initialState.destination.route)
-                            val to = tabOrder(targetState.destination.route)
-                            if (from >= 0 && to >= 0 && from != to) {
-                                slideIntoContainer(
-                                    if (to > from) AnimatedContentTransitionScope.SlideDirection.Left
-                                    else AnimatedContentTransitionScope.SlideDirection.Right,
-                                    animationSpec = tween(animDur(280, animScale)),
-                                ) + fadeIn(tween(animDur(200, animScale)))
-                            } else {
-                                fadeIn(tween(animDur(220, animScale))) +
-                                    scaleIn(
-                                        initialScale = 0.98f,
-                                        animationSpec = tween(animDur(220, animScale)),
-                                    )
-                            }
-                        },
-                        exitTransition = {
-                            fadeOut(tween(animDur(170, animScale))) +
-                                scaleOut(
-                                    targetScale = 0.98f,
-                                    animationSpec = tween(animDur(170, animScale)),
-                                )
-                        },
-                        popEnterTransition = { fadeIn(tween(animDur(220, animScale))) },
-                        popExitTransition = {
-                            fadeOut(tween(animDur(170, animScale))) +
-                                scaleOut(
-                                    targetScale = 0.98f,
-                                    animationSpec = tween(animDur(170, animScale)),
-                                )
-                        },
-                    ) {
+                    NavHost(navController = nav, startDestination = "home") {
                         composable("home") {
                             HomeScreen(
                                 vm = libraryViewModel,
@@ -395,53 +372,4 @@ fun AetherRoot(
     }
 
     BackHandler(enabled = inPlayer && playerState.locked) { /* swallow while locked */ }
-}
-
-@Composable
-private fun TabPill(tab: Tab, selected: Boolean, onClick: () -> Unit) {
-    val animScale = LocalAnimScale.current
-    val bg by animateColorAsState(
-        if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
-        animationSpec = tween(animDur(250, animScale)),
-        label = "tabBg",
-    )
-    val fg by animateColorAsState(
-        if (selected) MaterialTheme.colorScheme.onPrimary else Color.White,
-        animationSpec = tween(animDur(250, animScale)),
-        label = "tabFg",
-    )
-    val iconScale by animateFloatAsState(
-        if (selected) 1.12f else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMedium,
-        ),
-        label = "tabIcon",
-    )
-    val itemShape = RoundedCornerShape(24.dp)
-    Row(
-        modifier = Modifier
-            .clip(itemShape)
-            .background(bg)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            if (selected) tab.selected else tab.icon,
-            contentDescription = tab.label,
-            tint = fg,
-            modifier = Modifier.size(22.dp).scale(iconScale),
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(tab.label, color = fg, style = MaterialTheme.typography.labelLarge)
-    }
-}
-
-private fun tabOrder(route: String?): Int = when {
-    route == null -> -1
-    route.startsWith("home") -> 0
-    route.startsWith("videos") -> 1
-    route.startsWith("settings") -> 2
-    else -> -1
 }

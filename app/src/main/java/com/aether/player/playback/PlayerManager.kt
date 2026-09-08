@@ -4,15 +4,12 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
-import android.graphics.PixelCopy
 import android.media.AudioManager
 import android.media.MediaMetadataRetriever
 import android.media.audiofx.Equalizer
 import android.media.audiofx.LoudnessEnhancer
 import android.net.Uri
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.provider.MediaStore
 import android.view.SurfaceView
 import android.view.TextureView
@@ -456,7 +453,7 @@ class PlayerManager(
         }
         lastSubtitleUri = uri
         scope.launch {
-            val effective = withContext(Disuri) }
+            val effective = withContext(Dispatchers.IO) { applySubtitleDelay(uri) }
             val current = _state.value.current ?: return@launch
             val pos = player.currentPosition
             val play = player.playWhenReady
@@ -627,32 +624,7 @@ class PlayerManager(
         if (host == null) return null
         return withContext(Dispatchers.Main) {
             val target = findSurfaceView(host)
-            if (target is TextureView) {
-                return@withContext runCatching { target.bitmap }.getOrNull()
-            }
-            val surface = (target as? SurfaceView)?.holder?.surface
-            if (surface == null || !surface.isValid) return@withContext null
-            val w = target.width
-            val h = target.height
-            if (w <= 0 || h <= 0) return@withContext null
-            val bmp = runCatching { Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888) }.getOrNull()
-                ?: return@withContext null
-            val done = kotlinx.coroutines.CompletableDeferred<Bitmap?>()
-            val listener = PixelCopy.OnPixelCopyFinishedListener { result ->
-                if (result == PixelCopy.SUCCESS) {
-                    done.complete(bmp)
-                } else {
-                    runCatching { bmp.recycle() }
-                    done.complete(null)
-                }
-            }
-            runCatching {
-                PixelCopy.request(surface, bmp, listener, Handler(Looper.getMainLooper()))
-            }.onFailure {
-                runCatching { bmp.recycle() }
-                done.complete(null)
-            }
-            done.await()
+            if (target is TextureView) runCatching { target.bitmap }.getOrNull() else null
         }
     }
 

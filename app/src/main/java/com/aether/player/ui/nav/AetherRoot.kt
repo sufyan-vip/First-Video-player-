@@ -7,7 +7,6 @@ import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
@@ -18,7 +17,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideIntoContainer
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -226,21 +224,11 @@ fun AetherRoot(
                         navController = nav,
                         startDestination = "home",
                         enterTransition = {
-                            val from = tabOrder(initialState.destination.route)
-                            val to = tabOrder(targetState.destination.route)
-                            if (from >= 0 && to >= 0 && from != to) {
-                                slideIntoContainer(
-                                    if (to > from) AnimatedContentTransitionScope.SlideDirection.Left
-                                    else AnimatedContentTransitionScope.SlideDirection.Right,
-                                    animationSpec = tween(animDur(280, animScale)),
-                                ) + fadeIn(tween(animDur(200, animScale)))
-                            } else {
-                                fadeIn(tween(animDur(220, animScale))) +
-                                    scaleIn(
-                                        initialScale = 0.98f,
-                                        animationSpec = tween(animDur(220, animScale)),
-                                    )
-                            }
+                            fadeIn(tween(animDur(220, animScale))) +
+                                scaleIn(
+                                    initialScale = 0.98f,
+                                    animationSpec = tween(animDur(220, animScale)),
+                                )
                         },
                         exitTransition = {
                             fadeOut(tween(animDur(170, animScale))) +

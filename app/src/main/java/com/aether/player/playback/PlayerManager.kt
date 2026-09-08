@@ -660,8 +660,14 @@ class PlayerManager(
     }
 
     private fun findSurfaceView(host: View): View {
-        val inner = (host as? androidx.media3.ui.PlayerView)?.videoSurfaceView
-        return inner ?: host
+        if (host is SurfaceView || host is TextureView) return host
+        if (host is android.view.ViewGroup) {
+            for (i in 0 until host.childCount) {
+                val found = findSurfaceView(host.getChildAt(i))
+                if (found is SurfaceView || found is TextureView) return found
+            }
+        }
+        return host
     }
 
     private fun retrieverFrame(uri: String): Bitmap? {

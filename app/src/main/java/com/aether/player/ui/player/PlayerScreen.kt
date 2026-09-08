@@ -803,14 +803,14 @@ fun PlayerScreen(
                     menuOpen = false
                 },
                 Triple(Icons.Outlined.Info, "Info") { infoSheet = true; menuOpen = false },
-                Triple(Icons.Outlined.QueueMusic, "Up next") { queueSheet = true; menuOpen = false },
+                Triple(Icons.Outlined.PlaylistPlay, "Up next") { queueSheet = true; menuOpen = false },
                 Triple(
                     if (favOn) Icons.Filled.Favorite else Icons.Outlined.Favorite,
                     if (favOn) "Favorited" else "Favorite",
                 ) { toggleFav(); menuOpen = false },
                 Triple(Icons.Outlined.Share, "Share") { shareCurrent(); menuOpen = false },
-                Triple(Icons.Outlined.QueryStats, "Stats") { statsOverlay = true; menuOpen = false },
-                Triple(Icons.Outlined.Speaker, if (boostOn) "Boost on" else "Boost") { toggleBoost(); menuOpen = false },
+                Triple(Icons.Outlined.Audiotrack, "Stats") { statsOverlay = true; menuOpen = false },
+                Triple(Icons.Outlined.VolumeUp, if (boostOn) "Boost on" else "Boost") { toggleBoost(); menuOpen = false },
                 Triple(Icons.Outlined.Speed, "Speed+") { speedSheet = true; menuOpen = false },
                 Triple(Icons.Outlined.SkipPrevious, "Frame −") { pm.frameStep(false); menuOpen = false },
                 Triple(Icons.Outlined.SkipNext, "Frame +") { pm.frameStep(true); menuOpen = false },
@@ -818,7 +818,7 @@ fun PlayerScreen(
                     Icons.Outlined.ClosedCaption,
                     if (state.textTracks.any { it.selected }) "CC on" else "CC off",
                 ) { toggleCc(); menuOpen = false },
-                Triple(Icons.Outlined.PlaylistAdd, "Playlist") { playlistSheet = true; menuOpen = false },
+                Triple(Icons.Outlined.List, "Playlist") { playlistSheet = true; menuOpen = false },
             )
             MenuGrid(cells = cells, onDismiss = { menuOpen = false })
         }

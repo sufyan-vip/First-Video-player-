@@ -158,54 +158,63 @@ fun EqSheet(pm: PlayerManager, onDismiss: () -> Unit) {
                     "Equalizer unavailable on this device.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                return@Column
+            } else {
+                EqBody(pm = pm, bands = info.bands, minLevel = info.minLevel, maxLevel = info.maxLevel)
             }
-            Text(
-                "${info.bands} bands · device audio effect",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(12.dp))
-            PlayerManager.EQ_PRESETS.chunked(3).forEach { row ->
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(bottom = 8.dp),
-                ) {
-                    row.forEach { preset ->
-                        GlassChip(preset, selected == preset) {
-                            selected = preset
-                            pm.applyEqualizerPreset(preset)
-                            levels = pm.bandLevels() ?: levels
-                        }
+        }
+    }
+}
+
+@Composable
+private fun EqBody(pm: PlayerManager, bands: Int, minLevel: Short, maxLevel: Short) {
+    var selected by remember { mutableStateOf<String?>(null) }
+    var levels by remember { mutableStateOf(pm.bandLevels() ?: emptyList()) }
+    Column {
+        Text(
+            "$bands bands · device audio effect",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(12.dp))
+        PlayerManager.EQ_PRESETS.chunked(3).forEach { row ->
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(bottom = 8.dp),
+            ) {
+                row.forEach { preset ->
+                    GlassChip(preset, selected == preset) {
+                        selected = preset
+                        pm.applyEqualizerPreset(preset)
+                        levels = pm.bandLevels() ?: levels
                     }
                 }
             }
-            Spacer(Modifier.height(8.dp))
-            levels.forEachIndexed { index, level ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "Band ${index + 1}",
-                        style = MaterialTheme.typography.labelLarge,
-                        modifier = Modifier.weight(0.35f),
-                    )
-                    Slider(
-                        value = level.toFloat(),
-                        onValueChange = { v ->
-                            val next = levels.toMutableList()
-                            next[index] = v.toInt().toShort()
-                            levels = next
-                            pm.setBandLevel(index, v.toInt().toShort())
-                            selected = "Custom"
-                        },
-                        valueRange = info.minLevel.toFloat()..info.maxLevel.toFloat(),
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        "%.1f dB".format(level / 100f),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.weight(0.4f),
-                    )
-                }
+        }
+        Spacer(Modifier.height(8.dp))
+        levels.forEachIndexed { index, level ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Band ${index + 1}",
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.weight(0.35f),
+                )
+                Slider(
+                    value = level.toFloat(),
+                    onValueChange = { v ->
+                        val next = levels.toMutableList()
+                        next[index] = v.toInt().toShort()
+                        levels = next
+                        pm.setBandLevel(index, v.toInt().toShort())
+                        selected = "Custom"
+                    },
+                    valueRange = minLevel.toFloat()..maxLevel.toFloat(),
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    "%.1f dB".format(level / 100f),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(0.4f),
+                )
             }
         }
     }

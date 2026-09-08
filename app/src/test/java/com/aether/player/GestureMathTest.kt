@@ -17,9 +17,9 @@ class GestureMathTest {
     fun seekAndClamp() {
         val delta = GestureMath.seekDeltaMs(100f, 1000f, 600_000L, 1f)
         assertTrue(delta > 0)
-        assertEquals(50_000L, GestureMath.applySeek(40_000, 10_000, 100_000))
-        assertEquals(0L, GestureMath.applySeek(1_000, -50_000, 100_000))
-        assertEquals(100_000L, GestureMath.applySeek(90_000, 50_000, 100_000))
+        assertEquals(50_000L, GestureMath.applySeek(40_000L, 10_000L, 100_000L))
+        assertEquals(0L, GestureMath.applySeek(1_000L, -50_000L, 100_000L))
+        assertEquals(100_000L, GestureMath.applySeek(90_000L, 50_000L, 100_000L))
     }
 
     @Test

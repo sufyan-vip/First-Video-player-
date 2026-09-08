@@ -9,8 +9,8 @@ import org.junit.Test
 
 class AiCommandParserTest {
     private val marks = listOf(
-        BookmarkMoment(1, "v", 90_000L, "Opening Credits"),
-        BookmarkMoment(2, "v", 120_000L, "Bookmark 2:00"),
+        BookmarkMoment(1L, "v", 90_000L, "Opening Credits"),
+        BookmarkMoment(2L, "v", 120_000L, "Bookmark 2:00"),
     )
 
     @Test

@@ -544,11 +544,22 @@ fun SettingsDetailScreen(
                     subtitle = "Native Android · Media3 · Jetpack Compose",
                     icon = Icons.Outlined.Info,
                 )
+                SettingsRow(
+                    title = "Made by Sufyan",
+                    subtitle = "Free and open source ❤",
+                )
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
                     GlassButton("Diagnostics") { onOpenDiagnostics() }
+                    GlassButton("GitHub") {
+                        runCatching {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, "https://github.com/sufyan-vip/First-Video-player-".toUri()),
+                            )
+                        }
+                    }
                     GlassButton("Report issue") {
                         runCatching {
                             context.startActivity(

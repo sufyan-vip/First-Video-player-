@@ -637,25 +637,22 @@ class PlayerManager(
             if (w <= 0 || h <= 0) return@withContext null
             val bmp = runCatching { Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888) }.getOrNull()
                 ?: return@withContext null
-            kotlinx.coroutines.suspendCancellableCoroutine<Bitmap?> { cont ->
-                runCatching {
-                    PixelCopy.request(
-                        surface,
-                        bmp,
-                        { result ->
-                            if (result == PixelCopy.SUCCESS) cont.resume(bmp) {}
-                            else {
-                                runCatching { bmp.recycle() }
-                                cont.resume(null) {}
-                            }
-                        },
-                        Handler(Looper.getMainLooper()),
-                    )
-                }.onFailure {
+            val done = kotlinx.coroutines.CompletableDeferred<Bitmap?>()
+            val listener = PixelCopy.OnPixelCopyFinishedListener { result ->
+                if (result == PixelCopy.SUCCESS) {
+                    done.complete(bmp)
+                } else {
                     runCatching { bmp.recycle() }
-                    cont.resume(null) {}
+                    done.complete(null)
                 }
             }
+            runCatching {
+                PixelCopy.request(surface, bmp, listener, Handler(Looper.getMainLooper()))
+            }.onFailure {
+                runCatching { bmp.recycle() }
+                done.complete(null)
+            }
+            done.await()
         }
     }
 
@@ -893,11 +890,11 @@ class PlayerManager(
 
     fun isVolumeBoosted(): Boolean = boostOn && booster != null
 
-    fun setVolumeBoost(enabled: Boolean) {
+    fun setVolumeBoost(on: Boolean) {
         runCatching { booster?.release() }
         booster = null
         boostOn = false
-        if (!enabled) {
+        if (!on) {
             flash("Boost off")
             return
         }
